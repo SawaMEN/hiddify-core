@@ -78,7 +78,10 @@ func TestChainPsiphonBothDirectionsAndRegion(t *testing.T) {
 		t.Run(direction, func(t *testing.T) {
 			built := chainTestBuild(t, direction, "psiphon")
 			psiphon := chainTestOutbound(t, built, chainPrefix+"Psiphon").Options.(*option.PsiphonOutboundOptions)
-			if psiphon.EgressRegion != "DE" {
+			if psiphon.Config != "hiddify" {
+\t\t\t\tt.Fatalf("Psiphon bootstrap config = %q, want hiddify", psiphon.Config)
+\t\t\t}
+\t\t\tif psiphon.EgressRegion != "DE" {
 				t.Fatal("Psiphon region ignored")
 			}
 			if direction == "extra_security" && psiphon.Detour != OutboundSelectTag {

@@ -76,6 +76,9 @@ func BuildConfig(ctx context.Context, hopts *HiddifyOptions, inputOpt *ReadOptio
 	// Per-device policy must win even over restored or hand-edited core options.
 	effectivePolicy := *hopts
 	hopts = &effectivePolicy
+	if err := normalizeAppChain(hopts); err != nil {
+		return nil, err
+	}
 	if hopts.HandbookRouting {
 		hopts.Region = "other"
 		hopts.PrivacyRoutingMode = "off"

@@ -219,6 +219,9 @@ func panelCheck(t *testing.T, link string) string {
 func TestPanelURIsConvert(t *testing.T) {
 	for _, c := range panelCases(t) {
 		t.Run(c.name, func(t *testing.T) {
+			if strings.HasPrefix(c.name, "naive") && !testNaiveOutboundIncluded {
+				t.Skip("Naive runtime validation requires -tags with_naive_outbound and compatible Cronet; Android builds enable it")
+			}
 			if problem := panelCheck(t, c.link); problem != "" {
 				t.Errorf("%s\n  link: %.300s", problem, c.link)
 			}

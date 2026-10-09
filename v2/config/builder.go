@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	sync "sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	C "github.com/sagernet/sing-box/constant"
 	sdns "github.com/sagernet/sing-box/dns"
 	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing/common/auth"
 	"github.com/sagernet/sing/common/json/badoption"
 )
 
@@ -53,6 +55,7 @@ const (
 )
 
 var (
+	buildConfigMu            sync.Mutex
 	OutboundMainDetour       = OutboundSelectTag
 	OutboundWARPConfigDetour = OutboundDirectFragmentTag
 	PredefinedOutboundTags   = []string{OutboundDirectTag, OutboundBypassTag, OutboundSelectTag, OutboundURLTestTag, OutboundDirectFragmentTag, ChainExtraSecurityTag, ChainUnblockerTag}
@@ -60,6 +63,37 @@ var (
 
 // TODO include selectors
 func BuildConfig(ctx context.Context, hopts *HiddifyOptions, inputOpt *ReadOptions) (*option.Options, error) {
+	// Legacy route targets are package globals. Serialize complete snapshots,
+	// including the secondary stage, until they move into a builder instance.
+	buildConfigMu.Lock()
+	defer buildConfigMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if hopts == nil {
+		hopts = DefaultHiddifyOptions()
+	}
+	// Per-device policy must win even over restored or hand-edited core options.
+	effectivePolicy := *hopts
+	hopts = &effectivePolicy
+	if hopts.HandbookRouting {
+		hopts.Region = "other"
+		hopts.PrivacyRoutingMode = "off"
+	}
+
+	if hopts.ModernProtocolsOnly && (hopts.Warp.EnableWarp || hopts.Warp2.EnableWarp) {
+		return nil, fmt.Errorf("modern protocols only: disable WARP chains / Только современные протоколы: отключите цепочки WARP")
+	}
+	if hopts.AdaptiveNetwork {
+		effective := *hopts
+		hopts = &effective
+		if hopts.MTU > 1280 {
+			hopts.MTU = 1280
+		}
+		hopts.URLTestInterval = DurationInSeconds(60)
+		// Keep monitoring inexpensive on constrained links.
+		hopts.ConnectionTestUrls = []string{hopts.ConnectionTestUrl}
+	}
 
 	input, err := ReadSingOptions(ctx, inputOpt)
 	if err != nil {
@@ -76,11 +110,18 @@ func BuildConfig(ctx context.Context, hopts *HiddifyOptions, inputOpt *ReadOptio
 	setExperimental(&options, hopts)
 
 	setLog(&options, hopts)
+	if hopts.DisableLocalProxy {
+		// Imported full configurations cannot reopen listeners forbidden by device policy.
+		options.Inbounds = nil
+	}
 	setInbound(&options, hopts)
 	staticIPs := make(map[string][]string)
 	// staticIPs["api.cloudflareclient.com"] = []string{"104.16.192.82", "2606:4700::6810:1854", getRandomWarpIP()}
 	// setNTP(&options)
 	if err := setOutbounds(&options, input, hopts, &staticIPs); err != nil {
+		return nil, err
+	}
+	if err := applyChainStage(ctx, &options, hopts); err != nil {
 		return nil, err
 	}
 	if err := setDns(&options, hopts, &staticIPs); err != nil {
@@ -91,6 +132,37 @@ func BuildConfig(ctx context.Context, hopts *HiddifyOptions, inputOpt *ReadOptio
 		return nil, err
 	}
 
+	if hopts.FullTunnel {
+		// Scope to the TUN: bootstrap DNS and protected core sockets still work.
+		options.Route.Rules = append([]option.Rule{
+			{Type: C.RuleTypeDefault, DefaultOptions: option.DefaultRule{
+				RawDefaultRule: option.RawDefaultRule{Inbound: []string{InboundTUNTag}},
+				RuleAction:     option.RuleAction{Action: C.RuleActionTypeSniff},
+			}},
+			{Type: C.RuleTypeDefault, DefaultOptions: option.DefaultRule{
+				RawDefaultRule: option.RawDefaultRule{Inbound: []string{InboundTUNTag}, Port: []uint16{53}},
+				RuleAction:     option.RuleAction{Action: C.RuleActionTypeHijackDNS},
+			}},
+			{Type: C.RuleTypeDefault, DefaultOptions: option.DefaultRule{
+				RawDefaultRule: option.RawDefaultRule{Inbound: []string{InboundTUNTag}, Protocol: []string{C.ProtocolDNS}},
+				RuleAction:     option.RuleAction{Action: C.RuleActionTypeHijackDNS},
+			}},
+			{Type: C.RuleTypeDefault, DefaultOptions: option.DefaultRule{
+				RawDefaultRule: option.RawDefaultRule{Inbound: []string{InboundTUNTag}},
+				RuleAction:     option.RuleAction{Action: C.RuleActionTypeRoute, RouteOptions: option.RouteActionOptions{Outbound: OutboundMainDetour}},
+			}},
+		}, options.Route.Rules...)
+		options.DNS.Rules = append([]option.DNSRule{{Type: C.RuleTypeDefault, DefaultOptions: option.DefaultDNSRule{
+			RawDefaultDNSRule: option.RawDefaultDNSRule{Inbound: []string{InboundTUNTag}},
+			DNSRuleAction:     option.DNSRuleAction{Action: C.RuleActionTypeRoute, RouteOptions: option.DNSRouteActionOptions{Server: DNSRemoteTag}},
+		}}}, options.DNS.Rules...)
+	}
+	if hopts.HandbookRouting && !hopts.FullTunnel {
+		if err := applyHandbookRouting(ctx, &options, hopts); err != nil {
+			return nil, err
+		}
+	}
+	applyRegionalPrivacy(&options, hopts)
 	return &options, nil
 }
 
@@ -164,6 +236,10 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 		if isDNSOutbound(out) {
 			continue
 		}
+		if opt.ModernProtocolsOnly && !modernOutboundAllowed(out, opt.ModernAllowUDP) {
+			continue
+		}
+		out = applyAdaptiveOutbound(out, opt.AdaptiveNetwork, opt.ModernProtocolsOnly)
 		outbound, err := patchOutbound(out, *opt, staticIPs)
 		if err != nil {
 			return err
@@ -199,6 +275,9 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 	}
 
 	for _, end := range input.Endpoints {
+		if opt.ModernProtocolsOnly {
+			continue
+		}
 		if contains(PredefinedOutboundTags, end.Tag) {
 			continue
 		}
@@ -270,7 +349,21 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 			InterruptExistConnections: true,
 		},
 	}
+	if opt.AdaptiveNetwork {
+		// Existing streams survive monitoring updates; new flows avoid dead nodes.
+		for _, group := range []*option.BalancerOutboundOptions{
+			urlTest.Options.(*option.BalancerOutboundOptions), balancer.Options.(*option.BalancerOutboundOptions),
+		} {
+			group.Strategy = "sticky-sessions"
+			group.TTL = badoption.Duration(3 * time.Minute)
+			group.MaxRetry = 3
+			group.InterruptExistConnections = false
+		}
+	}
 	if len(tags) == 0 {
+		if opt.ModernProtocolsOnly {
+			return fmt.Errorf("modern protocols only: no compatible masked servers for selected TCP/UDP policy with verified TLS / Нет подходящих серверов с маскировкой и проверкой TLS для выбранного режима TCP/UDP. Нужны AnyTLS или Naive; Hysteria 2 и TUIC требуют разрешить UDP")
+		}
 		return fmt.Errorf("profile has no usable outbound")
 	}
 	defaultSelect := tags[0]
@@ -293,7 +386,7 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 		Options: &option.SelectorOutboundOptions{
 			Outbounds:                 selectorTags,
 			Default:                   defaultSelect,
-			InterruptExistConnections: true,
+			InterruptExistConnections: !opt.AdaptiveNetwork,
 		},
 	}
 	outbounds = append([]option.Outbound{selector}, outbounds...)
@@ -353,7 +446,7 @@ func setExperimental(options *option.Options, hopt *HiddifyOptions) {
 			hopt.ConnectionTestUrls = []string{hopt.ConnectionTestUrl}
 		}
 	}
-	if hopt.EnableClashApi {
+	{
 		if hopt.ClashApiSecret == "" {
 			hopt.ClashApiSecret = defaultClashApiSecret()
 		}
@@ -361,10 +454,7 @@ func setExperimental(options *option.Options, hopt *HiddifyOptions) {
 			UnifiedDelay: &option.UnifiedDelayOptions{
 				Enabled: true,
 			},
-			ClashAPI: &option.ClashAPIOptions{
-				ExternalController: fmt.Sprintf("%s:%d", "127.0.0.1", hopt.ClashApiPort),
-				Secret:             hopt.ClashApiSecret,
-			},
+			ClashAPI: &option.ClashAPIOptions{Secret: hopt.ClashApiSecret},
 
 			CacheFile: &option.CacheFileOptions{
 				Enabled:         true,
@@ -378,6 +468,9 @@ func setExperimental(options *option.Options, hopt *HiddifyOptions) {
 				DebounceWindow: badoption.Duration(time.Millisecond * 500),
 				IdleTimeout:    badoption.Duration(hopt.URLTestInterval.Duration().Nanoseconds() * 3),
 			},
+		}
+		if hopt.EnableClashApi {
+			options.Experimental.ClashAPI = &option.ClashAPIOptions{ExternalController: fmt.Sprintf("127.0.0.1:%d", hopt.ClashApiPort), Secret: hopt.ClashApiSecret}
 		}
 	}
 }
@@ -408,6 +501,18 @@ func ipv6EnabledFor(mode option.DomainStrategy, hostSupportsIPv6 bool) bool {
 }
 
 func setInbound(options *option.Options, hopt *HiddifyOptions) {
+	if hopt.WifiVPNSharing && !hopt.PrivacyRoot {
+		hopt.DisableLocalProxy = false
+		hopt.AllowConnectionFromLAN = true
+		hopt.SetSystemProxy = false
+		if hopt.MixedPort == 0 {
+			hopt.MixedPort = 12334
+		}
+	}
+	var users []auth.User
+	if hopt.AllowConnectionFromLAN && hopt.LanSharingPassword != "" {
+		users = []auth.User{{Username: "hiddify", Password: hopt.LanSharingPassword}}
+	}
 	// var inboundDomainStrategy option.DomainStrategy
 	// if !opt.ResolveDestination {
 	// 	inboundDomainStrategy = option.DomainStrategy(dns.DomainStrategyAsIS)
@@ -426,6 +531,20 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
 			// EndpointIndependentNat: true,
 			// GSO:                    runtime.GOOS != "windows",
 
+		}
+		if hopt.PrivacyRoot && os.Getuid() == 0 {
+			opts.InterfaceName = fmt.Sprintf("hc%d", hopt.PrivacyRootTable)
+			opts.IPRoute2TableIndex = hopt.PrivacyRootTable
+			opts.IPRoute2RuleIndex = 1000 + (hopt.PrivacyRootTable%16)*512
+			opts.ExcludeUID = hopt.PrivacyRootExcludeUIDs
+			// sing-tun owns hotspot/repeater interception, policy routing and teardown.
+			opts.AutoRedirect = hopt.WifiVPNSharing
+			if opts.AutoRedirect {
+				opts.AutoRedirectNFQueue = uint16(100 + hopt.PrivacyRootTable%1000)
+			}
+			if !ipv6Enable {
+				opts.StrictRoute = true
+			}
 		}
 		tunInbound := option.Inbound{
 			Type: C.TypeTun,
@@ -472,26 +591,30 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
 	for _, bind := range binds {
 		addr := badoption.Addr(netip.MustParseAddr(bind))
 
-		options.Inbounds = append(
-			options.Inbounds,
-			option.Inbound{
-				Type: C.TypeMixed,
-				Tag:  InboundMixedTag + bind,
-				Options: &option.HTTPMixedInboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     &addr,
-						ListenPort: hopt.MixedPort,
-						// InboundOptions: option.InboundOptions{
-						// 	SniffEnabled:             true,
-						// 	SniffOverrideDestination: true,
-						// 	DomainStrategy:           inboundDomainStrategy,
-						// },
+		if !hopt.DisableLocalProxy && hopt.MixedPort > 0 {
+			options.Inbounds = append(
+				options.Inbounds,
+				option.Inbound{
+					Type: C.TypeMixed,
+					Tag:  InboundMixedTag + bind,
+					Options: &option.HTTPMixedInboundOptions{
+						ListenOptions: option.ListenOptions{
+							Listen:     &addr,
+							ListenPort: hopt.MixedPort,
+							// InboundOptions: option.InboundOptions{
+							// 	SniffEnabled:             true,
+							// 	SniffOverrideDestination: true,
+							// 	DomainStrategy:           inboundDomainStrategy,
+							// },
+						},
+						SetSystemProxy: hopt.SetSystemProxy,
+						Users:          users,
 					},
-					SetSystemProxy: hopt.SetSystemProxy,
 				},
-			},
-		)
-		if C.IsLinux && !C.IsAndroid && hopt.TProxyPort > 0 && hutils.IsAdmin() {
+			)
+		}
+
+		if !hopt.DisableLocalProxy && C.IsLinux && !C.IsAndroid && hopt.TProxyPort > 0 && hutils.IsAdmin() {
 			options.Inbounds = append(
 				options.Inbounds,
 				option.Inbound{
@@ -506,7 +629,7 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
 				},
 			)
 		}
-		if (C.IsLinux || C.IsDarwin) && !C.IsAndroid && hopt.RedirectPort > 0 {
+		if !hopt.DisableLocalProxy && (C.IsLinux || C.IsDarwin) && !C.IsAndroid && hopt.RedirectPort > 0 {
 			options.Inbounds = append(
 				options.Inbounds,
 				option.Inbound{
@@ -521,7 +644,7 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
 				},
 			)
 		}
-		if hopt.DirectPort > 0 {
+		if !hopt.DisableLocalProxy && hopt.DirectPort > 0 {
 			options.Inbounds = append(
 				options.Inbounds,
 				option.Inbound{

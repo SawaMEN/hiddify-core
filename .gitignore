@@ -4,6 +4,7 @@
 
 *cronet*
 /bin/*
+/build/
 !/bin/.gitkeep
 .build
 .idea

@@ -17,12 +17,15 @@ import (
 )
 
 func NewService(ctx context.Context, options option.Options) (*daemon.StartedService, error) {
+	return NewServiceWithStartupContext(ctx, ctx, options)
+}
+func NewServiceWithStartupContext(ctx, startupCtx context.Context, options option.Options) (*daemon.StartedService, error) {
 
 	// ctx = filemanager.WithDefault(ctx, sWorkingPath, sTempPath, sUserID, sGroupID)
 	logInterface := LogInterface{}
 	bopts := daemon.ServiceOptions{
 		Context:     ctx,
-		Debug:       static.debug,
+		Debug:       static.debug.Load(),
 		LogMaxLines: 100,
 		// Options:           *options,
 		Handler: &logInterface,
@@ -44,9 +47,12 @@ func NewService(ctx context.Context, options option.Options) (*daemon.StartedSer
 
 	content, err := json.MarshalContext(ctx, options)
 	if err != nil {
+		instance.Close()
 		return nil, err
 	}
-	if err := instance.StartOrReloadService(ctx, string(content), nil); err != nil {
+	if err := instance.StartOrReloadService(startupCtx, string(content), nil); err != nil {
+		instance.CloseService()
+		instance.Close()
 		return nil, err
 	}
 
@@ -77,7 +83,9 @@ func (h *HiddifyInstance) Box() *box.Box {
 }
 
 func (h *HiddifyInstance) Instance() *daemon.Instance {
+	h.stateLock.RLock()
 	ss := h.StartedService
+	h.stateLock.RUnlock()
 	if ss == nil {
 		return nil
 	}

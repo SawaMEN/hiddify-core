@@ -73,7 +73,7 @@ func (s *ProfileRepositoryServer) DeleteProfile(ctx context.Context, req *Profil
 	default:
 		profile, err1 := s.GetProfile(ctx, req)
 
-		if profile.Profile == nil {
+		if profile == nil || profile.Profile == nil {
 			err = fmt.Errorf("error deleting profile: %v", err1)
 		} else {
 			err = DeleteById(profile.Profile.Id)
@@ -102,7 +102,7 @@ func (s *ProfileRepositoryServer) SetActiveProfile(ctx context.Context, req *Pro
 		var profile *ProfileResponse
 		profile, err = s.GetProfile(ctx, req)
 
-		if profile.Profile == nil {
+		if profile == nil || profile.Profile == nil {
 			err = fmt.Errorf("error setting profile as active: %v", err)
 		} else {
 			err = SetActiveProfile(profile.Profile)
@@ -152,7 +152,11 @@ func GetActiveProfile() (*ProfileEntity, error) {
 	if err != nil {
 		return nil, err
 	}
-	prof, err := GetById(active.Value.(string))
+	activeID, ok := active.Value.(string)
+	if !ok || activeID == "" {
+		return nil, fmt.Errorf("invalid active profile id")
+	}
+	prof, err := GetById(activeID)
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +164,9 @@ func GetActiveProfile() (*ProfileEntity, error) {
 }
 
 func SetActiveProfile(entity *ProfileEntity) error {
+	if entity == nil || entity.Id == "" {
+		return fmt.Errorf("invalid active profile")
+	}
 	table := db.GetTable[hcommon.AppSettings]()
 	return table.UpdateInsert(&hcommon.AppSettings{
 		Id:    "active_profile",
@@ -179,32 +186,49 @@ func GetById(id string) (*ProfileEntity, error) {
 func GetByName(name string) (*ProfileEntity, error) {
 	table := db.GetTable[ProfileEntity]()
 	allEntities, err := table.All()
+	if err != nil {
+		return nil, fmt.Errorf("error listing profiles: %v", err)
+	}
 	for _, entity := range allEntities {
 		if entity.Name == name {
 			return entity, nil
 		}
 	}
 
-	return nil, fmt.Errorf("error fetching profile by ID: %v", err)
+	return nil, fmt.Errorf("profile not found by name: %s", name)
 }
 
 func GetByUrl(ctx context.Context, url string) (*ProfileEntity, error) {
 	table := db.GetTable[ProfileEntity]()
 	allEntities, err := table.All()
+	if err != nil {
+		return nil, fmt.Errorf("error listing profiles: %v", err)
+	}
 	for _, entity := range allEntities {
 		if entity.Url == url {
 			return entity, nil
 		}
 	}
 
-	return nil, fmt.Errorf("error fetching profile by ID: %v", err)
+	return nil, fmt.Errorf("profile not found by URL: %s", url)
 }
 
 func AddByUrl(ctx context.Context, url string, optionalName string, markAsActive bool) (*ProfileEntity, error) {
 	existingProfile, _ := GetByUrl(ctx, url)
 	if existingProfile != nil {
-		// If the profile already exists, update it
-		return existingProfile, UpdateSubscription(existingProfile, false)
+		if err := UpdateSubscription(existingProfile, false); err != nil {
+			return nil, err
+		}
+		updated, err := GetById(existingProfile.Id)
+		if err != nil {
+			return nil, err
+		}
+		if markAsActive {
+			if err := SetActiveProfile(updated); err != nil {
+				return nil, fmt.Errorf("error setting updated profile active: %v", err)
+			}
+		}
+		return updated, nil
 	}
 
 	profileId := generateUuid()
@@ -221,9 +245,8 @@ func AddByUrl(ctx context.Context, url string, optionalName string, markAsActive
 	}
 
 	newProfile := &ProfileEntity{
-		Id: profileId,
-
-		LastUpdate: time.Now().UnixMicro(),
+		Id:         profileId,
+		LastUpdate: time.Now().UnixMilli(),
 		Url:        url,
 	}
 	newProfile.Parse(content.Header)
@@ -236,7 +259,9 @@ func AddByUrl(ctx context.Context, url string, optionalName string, markAsActive
 	}
 
 	if markAsActive {
-		SetActiveProfile(newProfile)
+		if err := SetActiveProfile(newProfile); err != nil {
+			return nil, fmt.Errorf("error setting new profile active: %v", err)
+		}
 	}
 	return newProfile, nil
 }
@@ -322,27 +347,90 @@ func AddByContent(ctx context.Context, content, name string, markAsActive bool) 
 		return nil, fmt.Errorf("error inserting new profile into the database: %v", err)
 	}
 	if markAsActive {
-		SetActiveProfile(newProfile)
+		if err := SetActiveProfile(newProfile); err != nil {
+			return nil, fmt.Errorf("error setting new profile active: %v", err)
+		}
 	}
 	return newProfile, nil
 }
 
 func UpdateSubscription(baseProfile *ProfileEntity, patchBaseProfile bool) error {
-	return nil
+	if baseProfile == nil || baseProfile.Id == "" || baseProfile.Url == "" {
+		return fmt.Errorf("invalid remote profile")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	content, err := downloadProfileContent(ctx, baseProfile.Url)
+	if err != nil {
+		return fmt.Errorf("error downloading profile update: %v", err)
+	}
+	if err := UpdateContent(ctx, baseProfile.Id, content.Body); err != nil {
+		return fmt.Errorf("error updating profile content: %v", err)
+	}
+
+	updated := *baseProfile
+	updated.LastUpdate = time.Now().UnixMilli()
+	updated.Parse(content.Header)
+	if patchBaseProfile {
+		return Patch(&updated)
+	}
+	return UpdateProfile(&updated)
 }
 
 func Patch(profile *ProfileEntity) error {
-	// Implement patch logic
-	return nil
+	if profile == nil || profile.Id == "" {
+		return fmt.Errorf("invalid profile patch")
+	}
+	existing, err := GetById(profile.Id)
+	if err != nil {
+		return err
+	}
+	if profile.Name != "" {
+		existing.Name = profile.Name
+	}
+	if profile.Url != "" {
+		existing.Url = profile.Url
+	}
+	if profile.LastUpdate != 0 {
+		existing.LastUpdate = profile.LastUpdate
+	}
+	if profile.Options != nil {
+		existing.Options = profile.Options
+	}
+	if profile.SubInfo != nil {
+		existing.SubInfo = profile.SubInfo
+	}
+	if profile.OverrideHiddifyOptions != nil {
+		existing.OverrideHiddifyOptions = profile.OverrideHiddifyOptions
+	}
+	return UpdateProfile(existing)
 }
 
 func DeleteById(id string) error {
+	profile, err := GetById(id)
+	if err != nil {
+		return err
+	}
 	table := db.GetTable[ProfileEntity]()
-	os.Remove(profilesDirName + "/" + id + ".info")
-	return table.Delete(id)
+	if err := table.Delete(id); err != nil {
+		return err
+	}
+	if err := os.Remove(profilesDirName + "/" + id + ".info"); err != nil && !os.IsNotExist(err) {
+		// Restore the metadata row if deleting the profile file failed. This keeps the repository
+		// internally consistent and makes a later delete retry possible.
+		if restoreErr := table.UpdateInsert(profile); restoreErr != nil {
+			return fmt.Errorf("failed to delete profile file: %v; failed to restore metadata: %v", err, restoreErr)
+		}
+		return fmt.Errorf("failed to delete profile file: %v", err)
+	}
+	return nil
 }
 
 func UpdateProfile(profile *ProfileEntity) error {
+	if profile == nil || profile.Id == "" {
+		return fmt.Errorf("invalid profile")
+	}
 	table := db.GetTable[ProfileEntity]()
 	return table.UpdateInsert(profile)
 }

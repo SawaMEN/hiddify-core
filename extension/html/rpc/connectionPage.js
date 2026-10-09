@@ -69,7 +69,7 @@ function connect(){
     const stream = hiddifyClient.coreInfoListener(request, {});
     stream.on('data', (response) => {
         console.log('Receving ',response);
-        handleCoreStatus(response);
+        handleCoreStatus(response.getCoreState());
     });
     
     stream.on('error', (err) => {

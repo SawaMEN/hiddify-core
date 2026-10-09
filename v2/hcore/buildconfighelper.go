@@ -37,7 +37,7 @@ func BuildConfig(ctx context.Context, in *StartRequest) (*option.Options, error)
 
 		// Log(LogLevel_DEBUG, LogType_CORE, "Building config ", string(hcontent))
 		// Log(LogLevel_DEBUG, LogType_CORE, "Building config ")
-		return config.BuildConfig(ctx, static.HiddifyOptions, readOpt)
+		return config.ParseBuildConfig(ctx, settingsSnapshot(), readOpt)
 	}
 	return config.ReadSingOptions(ctx, readOpt)
 
@@ -47,10 +47,10 @@ func (s *CoreService) Parse(ctx context.Context, in *ParseRequest) (*ParseRespon
 	return Parse(libbox.FromContext(ctx, nil), in)
 }
 
-func Parse(ctx context.Context, in *ParseRequest) (*ParseResponse, error) {
-	defer config.DeferPanicToError("parse", func(err error) {
-		Log(LogLevel_FATAL, LogType_CONFIG, err.Error())
-		StopAndAlert(MessageType_UNEXPECTED_ERROR, err.Error())
+func Parse(ctx context.Context, in *ParseRequest) (response *ParseResponse, err error) {
+	defer config.DeferPanicToError("parse", func(recovered error) {
+		err = recovered
+		Log(LogLevel_ERROR, LogType_CONFIG, recovered.Error())
 	})
 
 	path := in.TempPath
@@ -58,7 +58,7 @@ func Parse(ctx context.Context, in *ParseRequest) (*ParseResponse, error) {
 		path = in.ConfigPath
 	}
 
-	config, err := config.ParseConfigBytes(ctx, &config.ReadOptions{Content: in.Content, Path: path}, true, static.HiddifyOptions, false)
+	config, err := config.ParseConfigBytes(ctx, &config.ReadOptions{Content: in.Content, Path: path}, in.Debug, settingsSnapshot(), true)
 	if err != nil {
 		return &ParseResponse{
 			ResponseCode: hcommon.ResponseCode_FAILED,
@@ -86,55 +86,45 @@ func (s *CoreService) ChangeHiddifySettings(ctx context.Context, in *ChangeHiddi
 }
 
 func ChangeHiddifySettings(in *ChangeHiddifySettingsRequest, insert bool) (*CoreInfoResponse, error) {
-	static.HiddifyOptions = config.DefaultHiddifyOptions()
-	defer func() {
-		switch static.HiddifyOptions.LogLevel {
-		case "debug":
-			static.logLevel = LogLevel_DEBUG
-		case "info":
-			static.logLevel = LogLevel_INFO
-		case "warn":
-			static.logLevel = LogLevel_WARNING
-		case "error":
-			static.logLevel = LogLevel_ERROR
-		case "fatal":
-			static.logLevel = LogLevel_FATAL
-		case "trace":
-			static.logLevel = LogLevel_TRACE
-		default:
-			static.logLevel = LogLevel_INFO
+	static.settingsLock.Lock()
+	defer static.settingsLock.Unlock()
+	next := config.DefaultHiddifyOptions()
+	if in.HiddifySettingsJson != "" {
+		if err := json.Unmarshal([]byte(in.HiddifySettingsJson), next); err != nil {
+			return nil, err
 		}
-		static.debug = static.debug || static.logLevel <= LogLevel_DEBUG
-	}()
-
-	if in.HiddifySettingsJson == "" {
-		return &CoreInfoResponse{}, nil
+	}
+	if next.Warp.WireguardConfigStr != "" {
+		if err := json.Unmarshal([]byte(next.Warp.WireguardConfigStr), &next.Warp.WireguardConfig); err != nil {
+			return nil, err
+		}
+	}
+	if next.Warp2.WireguardConfigStr != "" {
+		if err := json.Unmarshal([]byte(next.Warp2.WireguardConfigStr), &next.Warp2.WireguardConfig); err != nil {
+			return nil, err
+		}
 	}
 	if insert {
-		settings := db.GetTable[hcommon.AppSettings]()
-		settings.UpdateInsert(&hcommon.AppSettings{
-			Id:    "HiddifySettingsJson",
-			Value: in.HiddifySettingsJson,
-		})
-	}
-
-	err := json.Unmarshal([]byte(in.HiddifySettingsJson), static.HiddifyOptions)
-	if err != nil {
-		return nil, err
-	}
-
-	if static.HiddifyOptions.Warp.WireguardConfigStr != "" {
-		err := json.Unmarshal([]byte(static.HiddifyOptions.Warp.WireguardConfigStr), &static.HiddifyOptions.Warp.WireguardConfig)
-		if err != nil {
+		if err := db.GetTable[hcommon.AppSettings]().UpdateInsert(&hcommon.AppSettings{Id: "HiddifySettingsJson", Value: in.HiddifySettingsJson}); err != nil {
 			return nil, err
 		}
 	}
-	if static.HiddifyOptions.Warp2.WireguardConfigStr != "" {
-		err := json.Unmarshal([]byte(static.HiddifyOptions.Warp2.WireguardConfigStr), &static.HiddifyOptions.Warp2.WireguardConfig)
-		if err != nil {
-			return nil, err
-		}
+	static.HiddifyOptions = next
+	switch next.LogLevel {
+	case "trace":
+		static.logLevel.Store(int32(LogLevel_TRACE))
+	case "debug":
+		static.logLevel.Store(int32(LogLevel_DEBUG))
+	case "warn":
+		static.logLevel.Store(int32(LogLevel_WARNING))
+	case "error":
+		static.logLevel.Store(int32(LogLevel_ERROR))
+	case "fatal":
+		static.logLevel.Store(int32(LogLevel_FATAL))
+	default:
+		static.logLevel.Store(int32(LogLevel_INFO))
 	}
+
 	return &CoreInfoResponse{}, nil
 }
 
@@ -142,15 +132,12 @@ func (s *CoreService) GenerateConfig(ctx context.Context, in *GenerateConfigRequ
 	return GenerateConfig(libbox.FromContext(ctx, nil), in)
 }
 
-func GenerateConfig(ctx context.Context, in *GenerateConfigRequest) (*GenerateConfigResponse, error) {
-	defer config.DeferPanicToError("generateConfig", func(err error) {
-		Log(LogLevel_FATAL, LogType_CONFIG, err.Error())
-		StopAndAlert(MessageType_UNEXPECTED_ERROR, err.Error())
+func GenerateConfig(ctx context.Context, in *GenerateConfigRequest) (response *GenerateConfigResponse, err error) {
+	defer config.DeferPanicToError("generateConfig", func(recovered error) {
+		err = recovered
+		Log(LogLevel_ERROR, LogType_CONFIG, recovered.Error())
 	})
-	if static.HiddifyOptions == nil {
-		static.HiddifyOptions = config.DefaultHiddifyOptions()
-	}
-	config, err := config.ParseBuildConfigBytes(ctx, static.HiddifyOptions, &config.ReadOptions{Path: in.Path})
+	config, err := config.ParseBuildConfigBytes(ctx, settingsSnapshot(), &config.ReadOptions{Path: in.Path})
 	if err != nil {
 		return nil, err
 	}

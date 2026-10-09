@@ -1,7 +1,10 @@
 package test
 
 import (
+	"encoding/base64"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/hiddify/hiddify-core/v2/profile"
@@ -9,8 +12,16 @@ import (
 )
 
 func TestAddByContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte("🔥 WARP 🔥")))
+		w.Header().Set("Subscription-Userinfo", "upload=0; download=0; total=10737418240000000; expire=2546249531")
+		w.Header().Set("Support-Url", "https://t.me/hiddify")
+		w.Header().Set("Profile-Web-Page-Url", "https://hiddify.com")
+		fmt.Fprintln(w, `{"outbounds":[{"type":"socks","tag":"test-proxy","server":"127.0.0.1","server_port":1080}]}`)
+	}))
+	defer server.Close()
 	ctx := libbox.BaseContext(nil)
-	entity, err := profile.AddByUrl(ctx, "https://raw.githubusercontent.com/hiddify/hiddify-next/refs/heads/main/test.configs/warp", "", false)
+	entity, err := profile.AddByUrl(ctx, server.URL, "", false)
 	if err != nil {
 		t.Fatalf("expected no error, but got: %v", err)
 	}

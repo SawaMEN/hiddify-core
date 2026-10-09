@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hiddify/hiddify-core/v2/config"
-	"github.com/hiddify/hiddify-core/v2/db"
 	hcommon "github.com/hiddify/hiddify-core/v2/hcommon"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/wlynxg/anet"
@@ -29,8 +28,12 @@ func (h *HiddifyInstance) readStatus(prev *SystemInfo) *SystemInfo {
 	message.Goroutines = int32(runtime.NumGoroutine())
 	// message.ConnectionsOut = int32(conntrack.Count())
 
-	if ss := h.StartedService; ss != nil {
+	h.stateLock.RLock()
+	ss, request := h.StartedService, h.previousStartRequest
+	h.stateLock.RUnlock()
+	if ss != nil {
 		status := ss.ReadStatus()
+		message.TrafficAvailable = status.TrafficAvailable
 		message.DownlinkTotal = status.DownlinkTotal
 		message.UplinkTotal = status.UplinkTotal
 		message.ConnectionsIn = status.ConnectionsIn
@@ -59,14 +62,8 @@ func (h *HiddifyInstance) readStatus(prev *SystemInfo) *SystemInfo {
 			// }
 		}
 
-		if prev == nil || prev.CurrentProfile == "" || message.UplinkTotal < 1000000 {
-			settings := db.GetTable[hcommon.AppSettings]()
-			lastName, err := settings.Get("lastStartRequestName")
-			if err == nil {
-				message.CurrentProfile = lastName.Value.(string)
-			}
-		} else {
-			message.CurrentProfile = prev.CurrentProfile
+		if request != nil {
+			message.CurrentProfile = request.ConfigName
 		}
 	}
 

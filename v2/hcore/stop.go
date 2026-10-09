@@ -23,22 +23,30 @@ func Stop() (coreResponse *CoreInfoResponse, err error) {
 	// if static.Box == nil {
 	// 	return errorWrapper(MessageType_INSTANCE_NOT_FOUND, fmt.Errorf("instance not found"))
 	// }
+	cancelStart()
 	static.lock.Lock()
 	defer static.lock.Unlock()
+	return stopLocked()
+}
 
+// Caller holds static.lock. Cancellation must happen before acquiring it.
+func stopLocked() (coreResponse *CoreInfoResponse, err error) {
 	SetCoreStatus(CoreStates_STOPPING, MessageType_EMPTY, "")
+	static.stateLock.RLock()
 	ss := static.StartedService
+	static.stateLock.RUnlock()
 	if ss == nil {
 		return SetCoreStatus(CoreStates_STOPPED, MessageType_ALREADY_STOPPED, ""), nil
 	}
 
+	defer ss.Close()
 	if err := ss.CloseService(); err != nil {
-		static.StartedService = nil
+		setStartedService(nil)
 		dumpGoroutinesToFile(fmt.Sprint(sWorkingPath, "/data/goroutine-stop.log"))
 		return errorWrapper(MessageType_UNEXPECTED_ERROR, err)
 	}
 	// err = common.Close(static.StartedService)
-	static.StartedService = nil
+	setStartedService(nil)
 
 	return SetCoreStatus(CoreStates_STOPPED, MessageType_EMPTY, ""), nil
 }

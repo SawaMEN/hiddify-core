@@ -11,7 +11,7 @@ ifeq ($(OS),Windows_NT)
 Not available for Windows! use bash in WSL
 endif
 CRONET_GO_VERSION := $(shell cat hiddify-sing-box/.github/CRONET_GO_VERSION)
-TAGS=with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_grpc,with_awg,tfogo_checklinkname0,with_naive_outbound,with_conntrack,with_embedded_tor,with_openvpn,with_openconnect
+TAGS=with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_grpc,with_awg,tfogo_checklinkname0,with_naive_outbound,with_conntrack,with_embedded_tor,with_openvpn,with_openconnect,with_masque
 IOS_ADD_TAGS=with_dhcp,with_low_memory,with_purego
 MACOS_ADD_TAGS=with_dhcp
 WINDOWS_ADD_TAGS=with_purego
@@ -33,9 +33,19 @@ GOBUILDLIB=CGO_ENABLED=1 go build -trimpath -ldflags="$(LDFLAGS)" -buildmode=c-s
 GOBUILDSRV=CGO_ENABLED=1 go build -ldflags="$(LDFLAGS)" -trimpath -tags $(TAGS)
 
 CRONET_DIR=./cronet
+GOMOBILE_VERSION=v0.1.13
+ANDROID_API ?= 24
+ANDROID_TARGET ?= android
+GOMOBILE := $(shell go env GOPATH)/bin/gomobile
+GOBIND := $(shell go env GOPATH)/bin/gobind
+PROTOC_GEN_GO_VERSION=v1.36.12
+PROTOC_GEN_GO_GRPC_VERSION=v1.6.2
+PROTOC_GEN_DOC_VERSION=v1.5.1
 .PHONY: protos
 protos:
-	go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@$(PROTOC_GEN_DOC_VERSION)
 	# protoc --go_out=./ --go-grpc_out=./ --proto_path=hiddifyrpc hiddifyrpc/*.proto
 	# for f in $(shell find v2 -name "*.proto"); do \
 	# 	protoc --go_opt=paths=source_relative --go-grpc_opt=paths=source_relative --go_out=./ --go-grpc_out=./  $$f; \
@@ -46,19 +56,22 @@ protos:
 	protoc --go_opt=paths=source_relative --go-grpc_opt=paths=source_relative --go_out=./ --go-grpc_out=./  $(shell find v2 -name "*.proto") $(shell find extension -name "*.proto")
 	protoc --doc_out=./docs  --doc_opt=markdown,hiddifyrpc.md $(shell find v2 -name "*.proto") $(shell find extension -name "*.proto")
 	# protoc --js_out=import_style=commonjs,binary:./extension/html/rpc/ --grpc-web_out=import_style=commonjs,mode=grpcwebtext:./extension/html/rpc/ $(shell find v2 -name "*.proto") $(shell find extension -name "*.proto")
-	# npx browserify extension/html/rpc/extension.js >extension/html/rpc.js
+	# npm run build:web
 
 
 lib_install: prepare
-	go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.11
-	go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.11
-	npm install
+	go install -v github.com/sagernet/gomobile/cmd/gomobile@$(GOMOBILE_VERSION)
+	go install -v github.com/sagernet/gomobile/cmd/gobind@$(GOMOBILE_VERSION)
 
 headers:
 	go build -buildmode=c-archive -o $(BINDIR)/ ./platform/desktop2
 
+android-arm64:
+	$(MAKE) android ANDROID_TARGET=android/arm64
+
 android: lib_install
-	CGO_LDFLAGS="-O2 -g -s -w -Wl,-z,max-page-size=16384" gomobile bind -v -androidapi=21 -javapkg=com.hiddify.core -libname=hiddify-core -tags=$(TAGS) -trimpath -ldflags="$(LDFLAGS)" -target=android -gcflags "all=-N -l" -o $(BINDIR)/$(LIBNAME).aar github.com/sagernet/sing-box/experimental/libbox ./platform/mobile
+	rm -rf build/*/lib$(LIBNAME)
+	CGO_LDFLAGS="-O2 -g -s -w -Wl,-z,max-page-size=16384" $(GOMOBILE) bind -v -androidapi=$(ANDROID_API) -javapkg=com.hiddify.core -libname=hiddify-core -tags=$(TAGS) -trimpath -ldflags="$(LDFLAGS)" -target=$(ANDROID_TARGET) -o $(BINDIR)/$(LIBNAME).aar github.com/sagernet/sing-box/experimental/libbox ./platform/mobile
 
 ios-full: lib_install
 	gomobile bind -v  -target ios,iossimulator,tvos,tvossimulator,macos -libname=hiddify-core -tags=$(TAGS),$(IOS_ADD_TAGS) -trimpath -ldflags="$(LDFLAGS)" -o $(BINDIR)/$(PRODUCT_NAME).xcframework github.com/sagernet/sing-box/experimental/libbox ./platform/mobile 
@@ -84,7 +97,7 @@ windows-amd64: prepare
 	env GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc  $(GOBUILDLIB) -tags $(TAGS),$(WINDOWS_ADD_TAGS)   -o $(BINDIR)/$(LIBNAME).dll ./platform/desktop
 	echo "core built, now building cli" 
 	ls -R $(BINDIR)/
-	go install -mod=readonly github.com/akavel/rsrc@latest ||echo "rsrc error in installation"
+	go install -mod=readonly github.com/akavel/rsrc@v0.10.2 ||echo "rsrc error in installation"
 	go run ./cli tunnel exit
 	cp $(BINDIR)/$(LIBNAME).dll ./$(LIBNAME).dll
 	$$(go env GOPATH)/bin/rsrc -ico ./assets/hiddify-cli.ico -o ./cmd/bydll/cli.syso ||echo "rsrc error in syso"
@@ -200,7 +213,7 @@ macos: prepare macos-amd64 macos-arm64
 	# chmod +x $(BINDIR)/$(CLINAME)
 
 prepare: 
-	go mod tidy
+	go mod download
 
 clean:
 	rm $(BINDIR)/*
@@ -213,4 +226,12 @@ release: # Create a new tag for release.
 	@bash -c '.github/change_version.sh'
 	
 
-
+# Tested generators: protoc 36.2, protoc-gen-js 4.0.3, grpc-web 2.1.1.
+.PHONY: web-rpc
+web-rpc:
+	@set -eu; \
+	  npm ci --ignore-scripts; \
+	  protoc -I. --js_out=import_style=commonjs,binary:extension/html/rpc v2/hcommon/common.proto v2/hcore/hcore.proto v2/hcore/hcore_service.proto extension/extension.proto extension/extension_service.proto; \
+	  protoc -I. --grpc-web_out=import_style=commonjs,mode=grpcwebtext:extension/html/rpc v2/hcore/hcore_service.proto extension/extension_service.proto; \
+	  npm run build:web; \
+	  npm run test:web

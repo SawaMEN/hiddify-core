@@ -12,7 +12,10 @@ import (
 )
 
 func (s *CoreService) HotReload(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
-	return HotReload(static.BaseContext, in)
+	static.stateLock.RLock()
+	baseCtx := static.BaseContext
+	static.stateLock.RUnlock()
+	return HotReload(baseCtx, in)
 }
 
 // HotReload applies the request's config to the running core without restarting it, or starts
@@ -25,20 +28,20 @@ func HotReload(ctx context.Context, in *StartRequest) (coreResponse *CoreInfoRes
 	})
 	static.lock.Lock()
 	defer static.lock.Unlock()
-	switch static.CoreState {
+	switch coreState() {
 	case CoreStates_STOPPED:
-		return startServiceLocked(ctx, in)
+		return startServiceLocked(ctx, in, static.startEpoch.Load())
 	case CoreStates_STARTED:
 		SetCoreStatus(CoreStates_HOT_RELOADING, MessageType_EMPTY, "")
 		// back to STARTED whatever happens: the core keeps running unchanged on a failure
 		defer func() {
-			if static.CoreState == CoreStates_HOT_RELOADING {
+			if coreState() == CoreStates_HOT_RELOADING {
 				SetCoreStatus(CoreStates_STARTED, MessageType_EMPTY, "")
 			}
 		}()
 		return hotReloadService(ctx, in)
 	default:
-		return hotReloadError(MessageType_HOT_RELOAD_FAILED, fmt.Errorf("core is %s", static.CoreState))
+		return hotReloadError(MessageType_HOT_RELOAD_FAILED, fmt.Errorf("core is %s", coreState()))
 	}
 }
 
@@ -89,7 +92,7 @@ func hotReloadService(ctx context.Context, in *StartRequest) (*CoreInfoResponse,
 // hotReloadError reports a failed hot reload; the core keeps running unchanged (STARTED).
 func hotReloadError(messageType MessageType, err error) (*CoreInfoResponse, error) {
 	Log(LogLevel_ERROR, LogType_CORE, "hot reload: ", err.Error())
-	state := static.CoreState
+	state := coreState()
 	if state == CoreStates_HOT_RELOADING {
 		state = CoreStates_STARTED
 	}

@@ -238,3 +238,7 @@ message StopRequest{
 message LANIPResponse {
   string ip = 1;
 }
+
+// Diagnostics use the selected outbound without exposing a local proxy listener.
+message NetworkProbeRequest { string url = 1; int64 download_bytes = 2; }
+message NetworkProbeResponse { int32 status_code = 1; int64 download_bytes = 2; int64 transfer_nanos = 3; }

@@ -2,7 +2,6 @@ package hcore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -19,7 +18,7 @@ import (
 )
 
 func (s *CoreService) Start(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
-	return Start(static.BaseContext, in)
+	return Start(ctx, in)
 }
 
 func Start(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
@@ -80,17 +79,33 @@ func StartService(ctx context.Context, in *StartRequest) (coreResponse *CoreInfo
 	defer config.DeferPanicToError("startmobile", func(recovered_err error) {
 		coreResponse, err = errorWrapper(MessageType_UNEXPECTED_ERROR, recovered_err)
 	})
+	epoch := static.startEpoch.Load()
 	static.lock.Lock()
 	defer static.lock.Unlock()
-	return startServiceLocked(ctx, in)
+	return startServiceLocked(ctx, in, epoch)
 }
 
-// startServiceLocked is StartService with static.lock held.
-func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *CoreInfoResponse, err error) {
-	if static.CoreState != CoreStates_STOPPED {
+// Caller holds static.lock throughout the lifecycle operation.
+func startServiceLocked(ctx context.Context, in *StartRequest, epoch uint64) (coreResponse *CoreInfoResponse, err error) {
+	startupCtx, cancel := context.WithCancel(ctx)
+	static.startLock.Lock()
+	if epoch != static.startEpoch.Load() {
+		static.startLock.Unlock()
+		cancel()
+		return nil, context.Canceled
+	}
+	static.startCancel = cancel
+	static.startLock.Unlock()
+	defer func() { cancel(); static.startLock.Lock(); static.startCancel = nil; static.startLock.Unlock() }()
+	static.stateLock.RLock()
+	baseCtx, platform := static.BaseContext, static.globalPlatformInterface
+	static.stateLock.RUnlock()
+	ctx = libbox.FromContext(startupCtx, platform)
+
+	if coreState() != CoreStates_STOPPED {
 		// return errorWrapper(MessageType_ALREADY_STARTED, fmt.Errorf("instance already started"))
 		return &CoreInfoResponse{
-			CoreState:   static.CoreState,
+			CoreState:   coreState(),
 			MessageType: MessageType_ALREADY_STARTED,
 			Message:     "instance already started",
 		}, nil
@@ -102,14 +117,9 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 		return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
 	}
 
+	static.stateLock.Lock()
 	static.previousStartRequest = in
-
-	if static.HiddifyOptions == nil {
-		return errorWrapper(
-			MessageType_ERROR_BUILDING_CONFIG,
-			errors.New("HiddifyOptions not initialized"),
-		)
-	}
+	static.stateLock.Unlock()
 
 	options, err := BuildConfig(ctx, in)
 	if err != nil {
@@ -125,31 +135,43 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 	Log(LogLevel_DEBUG, LogType_CORE, "Saving config to ", currentBuildConfigPath)
 
 	config.SaveCurrentConfig(ctx, currentBuildConfigPath, *options)
-	if static.debug {
+	if static.debug.Load() {
 		pout, err := options.MarshalJSONContext(ctx)
 		if err != nil {
 			return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
 		}
 		Log(LogLevel_INFO, LogType_CORE, "Current Config is:\n", string(pout))
 	}
-	ctx = libbox.FromContext(ctx, static.globalPlatformInterface)
-	if static.globalPlatformInterface != nil {
-		platformWrapper := libbox.WrapPlatformInterface(static.globalPlatformInterface)
-		service.MustRegister[adapter.PlatformInterface](ctx, platformWrapper)
+	serviceCtx := libbox.FromContext(baseCtx, platform)
+	if platform != nil {
+		platformWrapper := libbox.WrapPlatformInterface(platform)
+		service.MustRegister[adapter.PlatformInterface](serviceCtx, platformWrapper)
 		// } else {
 		// 	service.MustRegister[adapter.PlatformInterface](ctx, (*adapter.PlatformInterface)nil)
 	}
 	Log(LogLevel_DEBUG, LogType_CORE, "Stating Service with delay ?", in.DelayStart)
 	if in.DelayStart {
-		<-time.After(1000 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return errorWrapper(MessageType_START_SERVICE, ctx.Err())
+		case <-time.After(time.Second):
+		}
 	}
 	libbox.SetMemoryLimit(C.IsIos || !in.DisableMemoryLimit)
-	instance, err := NewService(ctx, *options)
+	if err := ctx.Err(); err != nil {
+		return errorWrapper(MessageType_START_SERVICE, err)
+	}
+	instance, err := NewServiceWithStartupContext(serviceCtx, ctx, *options)
 	if err != nil {
 		return errorWrapper(MessageType_START_SERVICE, err)
 	}
-	static.StartedService = instance
-	if static.debug {
+	if err := ctx.Err(); err != nil {
+		instance.CloseService()
+		instance.Close()
+		return errorWrapper(MessageType_START_SERVICE, err)
+	}
+	setStartedService(instance)
+	if static.debug.Load() {
 		dumpGoroutinesToFile(fmt.Sprint(sWorkingPath, "/data/goroutine-start.log"))
 	}
 	for inb := range options.Inbounds {

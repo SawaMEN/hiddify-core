@@ -232,7 +232,9 @@ func (h *HiddifyInstance) AllProxiesInfoStream(stream grpc.ServerStreamingServer
 	if ctx, urlTestHistory := h.Context(), h.UrlTestHistory(); ctx != nil && urlTestHistory != nil {
 		monitor := monitoring.Get(ctx)
 
-		stream.Send(h.GetAllProxiesInfo(monitor.OutboundsHistory(""), onlyMain))
+		if err := stream.Send(h.GetAllProxiesInfo(monitor.OutboundsHistory(""), onlyMain)); err != nil {
+			return err
+		}
 
 		urltestch, err := monitor.SubscribeGroup("")
 		if err != nil {

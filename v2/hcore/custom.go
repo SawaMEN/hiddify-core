@@ -14,20 +14,24 @@ func errorWrapper(state MessageType, err error) (*CoreInfoResponse, error) {
 func StopAndAlert(msgType MessageType, message string) {
 	SetCoreStatus(CoreStates_STOPPED, msgType, message)
 
-	if ss := static.StartedService; ss != nil {
+	static.stateLock.Lock()
+	ss := static.StartedService
+	static.StartedService = nil
+	static.stateLock.Unlock()
+	if ss != nil {
 		ss.CloseService()
-		static.StartedService = nil
+		ss.Close()
 	}
 }
 
-func Close(mode SetupMode) error {
-	defer config.DeferPanicToError("close", func(err error) {
-		Log(LogLevel_FATAL, LogType_CORE, err.Error())
-		StopAndAlert(MessageType_UNEXPECTED_ERROR, err.Error())
+func Close(mode SetupMode) (err error) {
+	defer config.DeferPanicToError("close", func(recovered error) {
+		err = recovered
+		Log(LogLevel_FATAL, LogType_CORE, recovered.Error())
 	})
 	log.Debug("[Service] Closing")
 
-	_, err := Stop()
+	_, err = Stop()
 	CloseGrpcServer(mode)
 
 	return err

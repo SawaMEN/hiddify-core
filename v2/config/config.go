@@ -2,6 +2,7 @@ package config
 
 import (
 	context "context"
+	"fmt"
 
 	"github.com/sagernet/sing-box/experimental/libbox"
 	"github.com/sagernet/sing-box/option"
@@ -31,6 +32,9 @@ func BuildConfigJson(ctx context.Context, configOpt *HiddifyOptions, input *Read
 		return nil, err
 	}
 	if err := libbox.CheckConfigOptions(options); err != nil {
+		if configOpt.ModernProtocolsOnly {
+			return nil, fmt.Errorf("modern protocols only: %w", err)
+		}
 		return nil, err
 	}
 

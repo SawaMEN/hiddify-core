@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 
@@ -23,15 +24,34 @@ import (
 //go:embed config.json.template
 var configByte []byte
 
+const MaxConfigBytes = 8 * 1024 * 1024
+
 func ReadContent(ctx context.Context, opt *ReadOptions) ([]byte, error) {
-	if opt.Content == "" {
-		contentBytes, err := os.ReadFile(opt.Path)
-		if err != nil {
-			return nil, err
-		}
-		opt.Content = string(contentBytes)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return []byte(opt.Content), nil
+	if opt.Content != "" {
+		if len(opt.Content) > MaxConfigBytes {
+			return nil, fmt.Errorf("configuration exceeds 8 MiB")
+		}
+		return []byte(opt.Content), nil
+	}
+	file, err := os.Open(opt.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, MaxConfigBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > MaxConfigBytes {
+		return nil, fmt.Errorf("configuration exceeds 8 MiB")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return content, nil
 }
 
 func ParseConfig(ctx context.Context, opt *ReadOptions, debug bool, configOpt *HiddifyOptions, fullConfig bool) (*option.Options, error) {
@@ -39,7 +59,7 @@ func ParseConfig(ctx context.Context, opt *ReadOptions, debug bool, configOpt *H
 	if err != nil {
 		return nil, err
 	}
-	return parseConfigContent(ctx, content, debug, nil, false)
+	return parseConfigContent(ctx, content, debug, configOpt, fullConfig)
 }
 
 func ParseConfigBytes(ctx context.Context, opt *ReadOptions, debug bool, configOpt *HiddifyOptions, fullConfig bool) ([]byte, error) {
@@ -62,11 +82,18 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 	var tmpJsonResult any
 	jsonDecoder := json.NewDecoder(SJ.NewCommentFilter(bytes.NewReader(content)))
 	if err := jsonDecoder.Decode(&tmpJsonResult); err == nil {
-		fmt.Printf("Convert using json\n")
+		var trailing any
+		if err := jsonDecoder.Decode(&trailing); err != io.EOF {
+			return nil, fmt.Errorf("[SingboxParser] trailing JSON content")
+		}
 		if tmpJsonObj, ok := tmpJsonResult.(map[string]interface{}); ok {
 			if tmpJsonObj["outbounds"] == nil && tmpJsonObj["endpoints"] == nil {
-				// a single outbound object (was wrapping the empty result itself)
-				jsonObj["outbounds"] = []interface{}{tmpJsonObj}
+				kind, _ := tmpJsonObj["type"].(string)
+				if kind == "masque-client" || kind == "awg" || kind == "wireguard" {
+					jsonObj["endpoints"] = []interface{}{tmpJsonObj}
+				} else {
+					jsonObj["outbounds"] = []interface{}{tmpJsonObj}
+				}
 			} else {
 				if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
 					jsonObj = tmpJsonObj
@@ -77,21 +104,20 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 					if tmpJsonObj["endpoints"] != nil {
 						jsonObj["endpoints"] = tmpJsonObj["endpoints"]
 					}
+					stripPanelResolverReferences(jsonObj)
 				}
 			}
 		} else if jsonArray, ok := tmpJsonResult.([]interface{}); ok {
-			if len(jsonArray) == 0 {
-				return nil, fmt.Errorf("[SingboxParser] no outbounds found")
-			}
-			outbounds := make([]interface{}, 0, len(jsonArray))
-			for i, item := range jsonArray {
-				itemObj, ok := item.(map[string]interface{})
-				if !ok {
-					return nil, fmt.Errorf("[SingboxParser] outbound at index %d is %T, expected a json object", i, item)
+			if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
+				for _, item := range jsonArray {
+					if object, ok := item.(map[string]interface{}); ok && (object["outbounds"] != nil || object["endpoints"] != nil) {
+						return nil, fmt.Errorf("multiple complete configurations cannot share one routing policy; disable full-config mode or import one configuration")
+					}
 				}
-				outbounds = append(outbounds, itemObj)
 			}
-			jsonObj["outbounds"] = outbounds
+			if err := mergePanelJSONArray(jsonObj, jsonArray); err != nil {
+				return nil, err
+			}
 		} else {
 			return nil, fmt.Errorf("[SingboxParser] incorrect json format: expected a json object or an array of outbound objects, got %T", tmpJsonResult)
 		}
@@ -130,6 +156,12 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 		return patchConfigStr(ctx, output, "ClashParser", configOpt)
 	}
 
+	if links, handled, err := parsePanelLinks(ctx, string(content)); handled {
+		if err != nil {
+			return nil, err
+		}
+		return patchConfigOptions(ctx, links, "PanelShareParser", configOpt)
+	}
 	v2ray, err := ray2sing.Ray2SingboxOptions(ctx, string(content), configOpt.UseXrayCoreWhenPossible)
 	if err == nil {
 		return patchConfigOptions(ctx, v2ray, "V2rayParser", configOpt)

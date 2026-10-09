@@ -16,7 +16,7 @@ service Core {
   rpc Setup (SetupRequest) returns (hcommon.Response);
   rpc Parse (ParseRequest) returns (ParseResponse);
   rpc ChangeHiddifySettings (ChangeHiddifySettingsRequest) returns (CoreInfoResponse);
-  //rpc GenerateConfig (GenerateConfigRequest) returns (GenerateConfigResponse);
+  rpc GenerateConfig (GenerateConfigRequest) returns (GenerateConfigResponse);
   rpc StartService (StartRequest) returns (CoreInfoResponse);
   rpc Stop (hcommon.Empty) returns (CoreInfoResponse);
   rpc Restart (StartRequest) returns (CoreInfoResponse);
@@ -33,6 +33,8 @@ service Core {
   rpc SetSystemProxyEnabled (SetSystemProxyEnabledRequest) returns (hcommon.Response);
   rpc LogListener (LogRequest) returns (stream LogMessage); 
   rpc Close (CloseRequest) returns (hcommon.Empty);
+  rpc ProbeConnection (NetworkProbeRequest) returns (NetworkProbeResponse);
+  rpc GetCurrentIpInfo (hcommon.Empty) returns (IpInfo);
   rpc GetLANIP (hcommon.Empty) returns (LANIPResponse);
 }
 

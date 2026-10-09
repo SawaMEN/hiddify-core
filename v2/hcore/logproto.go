@@ -30,7 +30,7 @@ func logLevel(level LogLevel, msg string) {
 	}
 }
 func Log(level LogLevel, typ LogType, message ...any) {
-	if level < static.logLevel {
+	if level < LogLevel(static.logLevel.Load()) {
 		return
 	}
 	// if static.debug {
@@ -47,7 +47,7 @@ func Log(level LogLevel, typ LogType, message ...any) {
 // sing-box logger. Used for messages that already come from sing-box, which
 // would otherwise loop back through the platform writer.
 func publishLog(level LogLevel, typ LogType, message string) {
-	if level < static.logLevel {
+	if level < LogLevel(static.logLevel.Load()) {
 		return
 	}
 	static.logObserver.Publish(&LogMessage{
@@ -70,7 +70,9 @@ func (s *CoreService) LogListener(req *LogRequest, stream grpc.ServerStreamingSe
 			if info.Level < req.Level {
 				continue
 			}
-			stream.Send(info)
+			if err := stream.Send(info); err != nil {
+				return err
+			}
 			// case <-time.After(500 * time.Millisecond):
 		}
 	}

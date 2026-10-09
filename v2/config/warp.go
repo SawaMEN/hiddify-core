@@ -207,7 +207,9 @@ func patchWarp(base *option.Endpoint, configOpt *HiddifyOptions, final bool, sta
 		if opts, ok := base.Options.(*option.WARPEndpointOptions); ok {
 			opts.ServerOptions.Server = ""
 			opts.ServerOptions.ServerPort = 0
-			opts.Profile.Detour = dialDetour(OutboundWARPConfigDetour)
+			// Parsing also runs outside BuildConfig (isolated profile validation).
+			// This bootstrap target is constant; do not read mutable builder globals.
+			opts.Profile.Detour = dialDetour(OutboundDirectFragmentTag)
 			return nil
 			is_saved_key := len(opts.UniqueIdentifier) > 1 && opts.UniqueIdentifier[0] == 'p'
 

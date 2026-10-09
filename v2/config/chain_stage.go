@@ -66,7 +66,7 @@ func applyChainStage(ctx context.Context, built *option.Options, opts *HiddifyOp
 			return fmt.Errorf("invalid Psiphon region")
 		}
 		input = &option.Options{Outbounds: []option.Outbound{{Type: C.TypePsiphon, Tag: "Psiphon", Options: &option.PsiphonOutboundOptions{
-			EgressRegion: region, ConduitPairingID: strings.TrimSpace(stage.ConduitPairingID),
+			Config: "hiddify", EgressRegion: region, ConduitPairingID: strings.TrimSpace(stage.ConduitPairingID),
 		}}}}
 	case "profile":
 		if len(stage.ProfileContent) == 0 || len(stage.ProfileContent) > MaxConfigBytes {

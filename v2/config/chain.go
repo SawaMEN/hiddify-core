@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
@@ -56,6 +57,61 @@ type ChainPsiphonOptions struct {
 
 type ChainProfileOptions struct {
 	ID *string `json:"id,omitempty"`
+}
+
+// Android sends both its editor state and a resolved runtime snapshot. Consume
+// the snapshot once, without mutating persisted options or adding a second hop.
+func normalizeAppChain(opt *HiddifyOptions) error {
+	if opt.ModernProtocolsOnly && (opt.Warp.EnableWarp || opt.Warp2.EnableWarp) {
+		return fmt.Errorf("modern protocols only: disable WARP chains")
+	}
+	if opt.ChainStage != nil {
+		if opt.ChainStatus != "" && opt.ChainStatus != ChainStatusOff && opt.ChainStatus != opt.ChainStage.Direction {
+			return fmt.Errorf("chain-stage direction conflicts with chain-status")
+		}
+		opt.ChainStatus = ChainStatusOff
+		return nil
+	}
+	if opt.ChainStatus == ChainStatusOff {
+		opt.Warp.EnableWarp = false
+		opt.Warp2.EnableWarp = false
+	}
+	if opt.Warp2.EnableWarp {
+		return fmt.Errorf("legacy double WARP is unsupported; select a single chain hop")
+	}
+	if opt.Warp.EnableWarp {
+		if opt.ChainStatus == "" {
+			var hop ChainHopOptions
+			hop.Mode = ChainModeWarp
+			w := opt.Warp
+			if w.WireguardConfigStr != "" {
+				return fmt.Errorf("legacy custom WARP configuration is unsupported; import it as a chain profile")
+			}
+			hop.Warp = ChainWarpOptions{LicenseKey: w.Id, CleanIP: w.CleanIP, CleanPort: w.CleanPort,
+				Noise: w.FakePackets, NoiseSize: w.FakePacketSize, NoiseDelay: w.FakePacketDelay, NoiseMode: w.FakePacketMode}
+			switch w.Mode {
+			case "warp_over_proxy":
+				opt.ChainStatus, opt.ExtraSecurity = ChainStatusExtraSecurity, hop
+			case "proxy_over_warp":
+				opt.ChainStatus, opt.Unblocker = ChainStatusUnblocker, hop
+			default:
+				return fmt.Errorf("unsupported legacy WARP mode %q", w.Mode)
+			}
+		} else if (opt.ChainStatus != ChainStatusExtraSecurity || opt.ExtraSecurity.Mode != ChainModeWarp) &&
+			(opt.ChainStatus != ChainStatusUnblocker || opt.Unblocker.Mode != ChainModeWarp) {
+			return fmt.Errorf("cannot combine a chain hop with legacy WARP")
+		}
+		opt.Warp.EnableWarp = false
+	}
+	if opt.ChainStatus != "" && opt.ChainStatus != ChainStatusOff {
+		if opt.EnableFullConfig {
+			return fmt.Errorf("disable execute-config-as-is before enabling a chain hop")
+		}
+		if opt.ModernProtocolsOnly {
+			return fmt.Errorf("modern protocols only: chain hop is incompatible")
+		}
+	}
+	return nil
 }
 
 // setChainHop adds the active chain hop and routes the main profile through it:
@@ -158,12 +214,12 @@ func chainWarpNoise(warp ChainWarpOptions) hiddify.NoiseOptions {
 }
 
 func chainPsiphonOutbound(tag string, psiphon ChainPsiphonOptions, detour string) option.Outbound {
-	region := psiphon.Region
+	region := strings.ToUpper(strings.TrimSpace(psiphon.Region))
 	if region == psiphonRegionAuto {
 		region = ""
 	}
 	// "hiddify": the Psiphon config embedded at build time (falls back to the defaults without it)
-	options := &option.PsiphonOutboundOptions{Config: "hiddify", EgressRegion: region}
+	options := &option.PsiphonOutboundOptions{Config: "hiddify", EgressRegion: region, ConduitPairingID: strings.TrimSpace(psiphon.ConduitPairingID)}
 	options.Detour = detour
 	return option.Outbound{Type: C.TypePsiphon, Tag: tag, Options: options}
 }

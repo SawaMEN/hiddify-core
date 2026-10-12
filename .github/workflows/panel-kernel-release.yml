@@ -15,6 +15,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  promote-existing:
+    # An already published, verified prerelease can be promoted without rebuilding.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: SawaMEN/3x-ui
+          ref: main
+          path: panel-source
+      - name: Promote existing verified kernel to stable latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag=$(python3 -c 'import json; print(json.load(open("panel-source/docs/hiddify-core-target.json"))["target"]["version"])')
+          if ! gh release view "$tag" --json isDraft >/dev/null 2>&1; then
+            echo "No published release to promote yet: $tag"
+            exit 0
+          fi
+          gh release view "$tag" --json isDraft --jq '.isDraft' | grep -Fxq false || {
+            echo "Release is still a draft; skipping promotion"
+            exit 0
+          }
+          available=$(gh release view "$tag" --json assets --jq '.assets[].name')
+          for asset in sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256; do
+            grep -Fxq "$asset" <<< "$available" || {
+              echo "Published release missing $asset; refusing to promote" >&2
+              exit 1
+            }
+          done
+          gh release edit "$tag" --draft=false --prerelease=false --latest
+          echo "Stable latest release: $tag"
+
   build:
     runs-on: ubuntu-latest
     strategy:

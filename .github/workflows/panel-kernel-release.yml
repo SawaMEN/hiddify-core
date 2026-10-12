@@ -25,11 +25,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: SawaMEN/3x-ui
-          ref: 6331430f256454872b1ba7ae5e435a30bced4602
+          ref: 1ce53979fac880c109097556c2f727d233720b2e
           path: panel-source
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.8'
+          go-version: '1.27.2'
           cache-dependency-path: panel-source/go.sum
       - name: Build pinned kernel and validate host configuration
         env:
@@ -56,7 +56,7 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/update'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: SawaMEN/3x-ui
-          ref: 6331430f256454872b1ba7ae5e435a30bced4602
+          ref: 1ce53979fac880c109097556c2f727d233720b2e
           path: panel-source
       - uses: actions/download-artifact@v7
         with:
@@ -85,6 +85,8 @@ jobs:
 
           Includes Vision tuning, REALITY ML-DSA, VLESS Reverse, mKCP, XHTTP nested download overrides and dynamic balancers.
 
+          Security build: Go 1.27.2 and golang.org/x/net v0.60.0.
+
           Linux x86_64: sing-box-linux-amd64.tar.gz
           Linux ARM64: sing-box-linux-arm64.tar.gz
 
@@ -94,7 +96,7 @@ jobs:
           Each archive includes the kernel, matching Cronet library, SHA-256 checksums and source/build manifest. Verify the archive checksum before installation.
           Release workflow commit: ${SOURCE_COMMIT}
           Kernel source: b5749002266b9782803669138494ef6937eb4e95
-          Build overlays: https://github.com/SawaMEN/3x-ui/tree/6331430f256454872b1ba7ae5e435a30bced4602/deploy/hiddify
+          Build overlays: https://github.com/SawaMEN/3x-ui/tree/1ce53979fac880c109097556c2f727d233720b2e/deploy/hiddify
           NOTES
           if gh release view "$tag" --json isDraft,targetCommitish > existing-release.json 2>/dev/null; then
             jq -e --arg source "$SOURCE_COMMIT" '.isDraft == true and .targetCommitish == $source' existing-release.json >/dev/null || {

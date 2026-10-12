@@ -56,7 +56,7 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.workflow == 'Release modified Sing-box')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -99,6 +99,17 @@ jobs:
           Build overlays: https://github.com/SawaMEN/3x-ui/tree/main/deploy/hiddify
           NOTES
           if gh release view "$tag" --json isDraft,targetCommitish > existing-release.json 2>/dev/null; then
+            if jq -e --arg source "$SOURCE_COMMIT" '.isDraft == false and .targetCommitish == $source' existing-release.json >/dev/null; then
+              published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
+              for asset in sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256; do
+                grep -Fxq "$asset" <<< "$published_assets" || {
+                  echo "Published release is incomplete: $asset" >&2
+                  exit 1
+                }
+              done
+              echo "Matching kernel release already published: $tag"
+              exit 0
+            fi
             jq -e --arg source "$SOURCE_COMMIT" '.isDraft == true and .targetCommitish == $source' existing-release.json >/dev/null || {
               echo "Release $tag already exists; refusing to replace published or unrelated assets" >&2
               exit 1

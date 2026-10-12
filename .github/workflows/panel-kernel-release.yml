@@ -66,10 +66,96 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+  build-android:
+    name: Android ARM64 AAR and root companion
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: SawaMEN/3x-ui
+          ref: main
+          path: panel-source
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: go.sum
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 17
+      - name: Install Android SDK and NDK
+        run: |
+          set -euo pipefail
+          manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$manager" ] || manager=$(command -v sdkmanager)
+          "$manager" "ndk;30.0.16248370" "platforms;android-24"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - name: Set matching stable version identity
+        env:
+          KERNEL_COMMIT: ${{ github.sha }}
+          KERNEL_CHANNEL: stable
+        run: python3 tools/prepare-panel-kernel.py panel-source
+      - name: Build Android AAR and root executable
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import json; print(json.load(open("panel-source/docs/hiddify-core-target.json"))["target"]["version"])')
+          sing=$(git rev-parse HEAD:hiddify-sing-box | cut -c 1-12)
+          make android-arm64 CODE_VERSION="-X github.com/hiddify/hiddify-core/v2/hcommon/constants.Version=$version -X github.com/sagernet/sing-box/constant.Version=sawamen-$sing"
+          go run ./cmd/internal/build_root
+      - name: Package and validate mobile assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-android release-assets
+          python3 - <<'PY'
+          import json, pathlib, shutil, struct, zipfile
+          folder = pathlib.Path("release-android")
+          aar = pathlib.Path("bin/hiddify-core.aar")
+          companion = pathlib.Path("bin/libhiddify-root.so")
+          if not aar.is_file() or aar.stat().st_size < 100000:
+              raise SystemExit("Android AAR missing or empty")
+          with zipfile.ZipFile(aar) as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Android AAR corrupted")
+              if not any(x.startswith("jni/arm64-v8a/") and x.endswith(".so") for x in archive.namelist()):
+                  raise SystemExit("No ARM64 native library in Android AAR")
+          with companion.open("rb") as executable:
+              header = executable.read(20)
+          if len(header) != 20 or header[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<HH",header,16) != (3,183):
+              raise SystemExit("Android root companion must be ARM64 ELF PIE")
+          shutil.copyfile(aar, folder/"hiddify-core.aar")
+          shutil.copyfile(companion, folder/"libhiddify-root.so")
+          manifest = json.loads(pathlib.Path("panel-source/docs/hiddify-core-target.json").read_text())
+          manifest["android_build"] = {"platform": "android", "arch": "arm64"}
+          (folder/"target.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+          (cd release-android && sha256sum hiddify-core.aar libhiddify-root.so > SHA256SUMS)
+          tar -C release-android -czf release-assets/hiddify-core-android-arm64.tar.gz hiddify-core.aar libhiddify-root.so target.json SHA256SUMS
+          (cd release-assets && sha256sum hiddify-core-android-arm64.tar.gz > hiddify-core-android-arm64.tar.gz.sha256)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hiddify-core-android-arm64
+          path: |
+            release-assets/hiddify-core-android-arm64.tar.gz
+            release-assets/hiddify-core-android-arm64.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+
   publish:
     name: Publish dev or stable release
-    needs: [build]
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/update' || github.ref == 'refs/heads/main')
+    needs: [build, build-android]
+    if: >-
+      always() &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/update' || github.ref == 'refs/heads/main') &&
+      needs.build.result == 'success' &&
+      (github.ref == 'refs/heads/update' || needs.build-android.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write

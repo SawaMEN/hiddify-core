@@ -1,89 +1,64 @@
 name: Release modified Sing-box
 
 on:
+  push:
+    branches: [update, main]
   workflow_dispatch:
   workflow_call:
-  push:
-    branches: [main]
-    paths: [.github/workflows/panel-kernel-release.yml]
 
 permissions:
   contents: read
 
+# Run for every commit and serialize publication; no cancellations.
 concurrency:
-  group: sing-box-release-${{ github.workflow }}-${{ github.sha }}
+  group: kernel-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  promote-existing:
-    # An already published, verified prerelease can be promoted without rebuilding.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          repository: SawaMEN/3x-ui
-          ref: main
-          path: panel-source
-      - name: Promote existing verified kernel to stable latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          tag=$(python3 -c 'import json; print(json.load(open("panel-source/docs/hiddify-core-target.json"))["target"]["version"])')
-          if ! gh release view "$tag" --json isDraft >/dev/null 2>&1; then
-            echo "No published release to promote yet: $tag"
-            exit 0
-          fi
-          gh release view "$tag" --json isDraft --jq '.isDraft' | grep -Fxq false || {
-            echo "Release is still a draft; skipping promotion"
-            exit 0
-          }
-          available=$(gh release view "$tag" --json assets --jq '.assets[].name')
-          for asset in sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256; do
-            grep -Fxq "$asset" <<< "$available" || {
-              echo "Published release missing $asset; refusing to promote" >&2
-              exit 1
-            }
-          done
-          gh release edit "$tag" --draft=false --prerelease=false --latest
-          echo "Stable latest release: $tag"
-
   build:
+    name: Build modified kernel (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout triggering kernel commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Checkout panel overlays
+        uses: actions/checkout@v7
         with:
           repository: SawaMEN/3x-ui
           ref: main
           path: panel-source
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.9'
           cache-dependency-path: panel-source/go.sum
-      - name: Build pinned kernel and validate host configuration
+      - name: Set exact source and release identity
+        env:
+          KERNEL_COMMIT: ${{ github.sha }}
+          KERNEL_CHANNEL: ${{ github.ref == 'refs/heads/update' && 'dev' || 'stable' }}
+        run: python3 tools/prepare-panel-kernel.py panel-source
+      - name: Build and test kernel from the triggering commit
         env:
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
           SINGBOX_CRONET_LINKAGE: purego
         run: bash panel-source/tools/build-hiddify-core.sh "$PWD/kernel-output"
-      - name: Package kernel and matching runtime library
+      - name: Package verified kernel
         env:
           KERNEL_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           mkdir release-assets
-          tar -C kernel-output -czf "release-assets/sing-box-linux-${KERNEL_ARCH}.tar.gz" \
-            "hiddify-core-linux-${KERNEL_ARCH}" "hiddify-core-linux-${KERNEL_ARCH}.sha256" \
+          tar -C kernel-output -czf "release-assets/sing-box-linux-$KERNEL_ARCH.tar.gz" \
+            "hiddify-core-linux-$KERNEL_ARCH" "hiddify-core-linux-$KERNEL_ARCH.sha256" \
             libcronet.so libcronet.so.sha256 target.json
-          (cd release-assets; sha256sum "sing-box-linux-${KERNEL_ARCH}.tar.gz" > "sing-box-linux-${KERNEL_ARCH}.tar.gz.sha256")
+          (cd release-assets && sha256sum "sing-box-linux-$KERNEL_ARCH.tar.gz" > "sing-box-linux-$KERNEL_ARCH.tar.gz.sha256")
       - uses: actions/upload-artifact@v7
         with:
           name: sing-box-linux-${{ matrix.arch }}
@@ -92,71 +67,56 @@ jobs:
           compression-level: 0
 
   publish:
-    needs: build
-    if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.workflow == 'Release modified Sing-box')
+    name: Publish dev or stable release
+    needs: [build]
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/update' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
-        with:
-          repository: SawaMEN/3x-ui
-          ref: main
-          path: panel-source
       - uses: actions/download-artifact@v7
         with:
           pattern: sing-box-linux-*
           path: release-assets
           merge-multiple: true
-      - name: Publish verified kernel release
+      - name: Publish matching channel
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_COMMIT: ${{ github.sha }}
           GH_REPO: ${{ github.repository }}
+          KERNEL_COMMIT: ${{ github.sha }}
+          KERNEL_CHANNEL: ${{ github.ref == 'refs/heads/update' && 'dev' || 'stable' }}
         run: |
           set -euo pipefail
-          version=$(python3 -c 'import json; print(json.load(open("panel-source/docs/hiddify-core-target.json"))["target"]["version"])')
-          tag="${version}"
-          cat > release-notes.md <<NOTES
-          Modified Sing-box ${version} for 3x-ui.
-
-          Includes Vision tuning, REALITY ML-DSA, VLESS Reverse, mKCP, XHTTP nested download overrides and dynamic balancers.
-
-          Security build: Go 1.26.9 and golang.org/x/net v0.60.0.
-
-          Linux x86_64: sing-box-linux-amd64.tar.gz
-          Linux ARM64: sing-box-linux-arm64.tar.gz
-
-          Extract the matching archive into the panel bin directory. Keep libcronet.so beside hiddify-core-linux-ARCH. The binary filename is retained for panel compatibility.
-          Panel builds consume the latest verified published release and its matching target.json.
-
-          Each archive includes the kernel, matching Cronet library, SHA-256 checksums and source/build manifest. Verify the archive checksum before installation.
-          Release workflow commit: ${SOURCE_COMMIT}
-          Kernel source: see target.json inside the release asset
-          Build overlays: https://github.com/SawaMEN/3x-ui/tree/main/deploy/hiddify
-          NOTES
-          if gh release view "$tag" --json isDraft,targetCommitish > existing-release.json 2>/dev/null; then
-            if jq -e '.isDraft == false' existing-release.json >/dev/null; then
-              # An existing published release has immutable verified assets.
-              # Promote it to the current stable release without rebuilding or replacing files.
-              published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
-              for asset in sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256; do
-                grep -Fxq "$asset" <<< "$published_assets" || {
-                  echo "Published release is incomplete: $asset" >&2
-                  exit 1
-                }
-              done
-              gh release edit "$tag" --draft=false --prerelease=false --latest
-              echo "Existing kernel release promoted to stable latest: $tag"
-              exit 0
-            fi
-            jq -e --arg source "$SOURCE_COMMIT" '.isDraft == true and .targetCommitish == $source' existing-release.json >/dev/null || {
-              echo "Release $tag already exists as an unrelated draft; refusing to overwrite it" >&2
-              exit 1
-            }
+          tag=$(tar -xOzf release-assets/sing-box-linux-amd64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
+          other=$(tar -xOzf release-assets/sing-box-linux-arm64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
+          [ "$tag" = "$other" ] || { echo "Architectures disagree" >&2; exit 1; }
+          if [ "$KERNEL_CHANNEL" = dev ]; then
+            [[ "$tag" == sawamen-dev-* ]] || exit 1
           else
-            gh release create "$tag" --target "$SOURCE_COMMIT" --draft \
-              --title "Modified Sing-box ${version}" --notes-file release-notes.md
+            [[ "$tag" == sawamen-* && "$tag" != sawamen-dev-* ]] || exit 1
           fi
-          gh release upload "$tag" release-assets/*.tar.gz release-assets/*.sha256 --clobber
-          gh release edit "$tag" --draft=false --prerelease=false --latest
+          cat > release-notes.md <<NOTES
+          Modified Sing-box ($KERNEL_CHANNEL) for 3x-ui
+          Kernel commit: $KERNEL_COMMIT
+          Branch: $GITHUB_REF_NAME
+          Verified Linux AMD64/ARM64 with libcronet.so, target.json, SHA-256.
+          NOTES
+          if gh release view "$tag" --json isDraft >/dev/null 2>&1; then
+            published=$(gh release view "$tag" --json isDraft --jq '.isDraft')
+            [ "$published" = false ] || { echo "Draft already exists: $tag" >&2; exit 1; }
+            available=$(gh release view "$tag" --json assets --jq '.assets[].name')
+            for name in sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256; do
+              grep -Fxq "$name" <<< "$available" || { echo "Existing release incomplete: $name" >&2; exit 1; }
+            done
+            echo "Already published: $tag"
+            exit 0
+          fi
+          gh release create "$tag" --target "$KERNEL_COMMIT" --draft \
+            --title "Modified Sing-box $tag" --notes-file release-notes.md
+          gh release upload "$tag" release-assets/*.tar.gz release-assets/*.sha256
+          if [ "$KERNEL_CHANNEL" = dev ]; then
+            gh release edit "$tag" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$tag" --draft=false --prerelease=false --latest
+          fi
+          echo "Published $KERNEL_CHANNEL kernel: $tag"

@@ -1,4 +1,5 @@
 name: CI
+
 on:
   pull_request:
     paths-ignore:
@@ -7,11 +8,7 @@ on:
       - '.vscode/'
       - 'appcast.xml'
   push:
-    branches:
-       - main
-       - dev
-       - v3
-       - v4
+    branches: [dev, v3, v4]
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -23,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   run:

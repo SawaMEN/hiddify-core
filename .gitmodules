@@ -5,3 +5,4 @@
 [submodule "ray2sing"]
 	path = ray2sing
 	url = https://github.com/hiddify/ray2sing.git
+	branch = main

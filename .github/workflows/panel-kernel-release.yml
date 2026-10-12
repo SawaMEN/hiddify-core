@@ -2,6 +2,7 @@ name: Release modified Sing-box
 
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     branches: [update]
     paths: [.github/workflows/panel-kernel-release.yml]
@@ -55,6 +56,7 @@ jobs:
 
   publish:
     needs: build
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,7 +81,7 @@ jobs:
           version=$(python3 -c 'import json; print(json.load(open("panel-source/docs/hiddify-core-target.json"))["target"]["version"])')
           tag="${version}"
           cat > release-notes.md <<NOTES
-          Modified Sing-box ${version} for the 3x-ui update branch.
+          Modified Sing-box ${version} for 3x-ui.
 
           Includes Vision tuning, REALITY ML-DSA, VLESS Reverse, mKCP, XHTTP nested download overrides and dynamic balancers.
 
@@ -87,7 +89,7 @@ jobs:
           Linux ARM64: sing-box-linux-arm64.tar.gz
 
           Extract the matching archive into the panel bin directory. Keep libcronet.so beside hiddify-core-linux-ARCH. The binary filename is retained for panel compatibility.
-          Requires the panel from update with the same pinned kernel version. Updating only the kernel on an older panel can fail its version check.
+          Requires a panel with the same pinned kernel version. Updating only the kernel on an older panel can fail its version check.
 
           Each archive includes the kernel, matching Cronet library, SHA-256 checksums and source/build manifest. Verify the archive checksum before installation.
           Release workflow commit: ${SOURCE_COMMIT}

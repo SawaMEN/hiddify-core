@@ -15,7 +15,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Update dev builds follow the modified fork's main branch. Stable builds
+  # retain their reviewed gitlink so releases remain reproducible.
+  resolve_singbox:
+    name: Resolve Sing-box revision
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Resolve source revision
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == "refs/heads/update" ]]; then
+            commit=$(git ls-remote https://github.com/SawaMEN/hiddify-sing-box.git refs/heads/main | awk '$2 == "refs/heads/main" {print $1}')
+          else
+            commit=$(git ls-tree HEAD -- hiddify-sing-box | awk '$1 == "160000" && $2 == "commit" {print $3}')
+          fi
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not resolve Sing-box source revision" >&2; exit 1; }
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "Selected Sing-box revision: $commit"
+
   build:
+    needs: resolve_singbox
     name: Build modified kernel (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
@@ -41,6 +68,7 @@ jobs:
       - name: Set exact source and release identity
         env:
           KERNEL_COMMIT: ${{ github.sha }}
+          SINGBOX_COMMIT: ${{ needs.resolve_singbox.outputs.commit }}
           KERNEL_CHANNEL: ${{ github.ref == 'refs/heads/update' && 'dev' || 'stable' }}
         run: python3 tools/prepare-panel-kernel.py panel-source
       - name: Build and test kernel from the triggering commit

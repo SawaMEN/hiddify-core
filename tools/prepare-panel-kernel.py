@@ -34,7 +34,12 @@ def prepare(panel):
         raise ValueError("Invalid release channel")
     if command("git", "rev-parse", "HEAD") != core_sha:
         raise ValueError("Checked-out kernel is not the triggering commit")
-    sing_sha, ray_sha = gitlink("hiddify-sing-box"), gitlink("ray2sing")
+    pinned_sing_sha, ray_sha = gitlink("hiddify-sing-box"), gitlink("ray2sing")
+    # CI resolves the current fork revision once per workflow, so both
+    # architectures use identical sources. Local builds retain the gitlink.
+    sing_sha = os.environ.get("SINGBOX_COMMIT") or pinned_sing_sha
+    if not re.fullmatch(r"[0-9a-f]{40}", sing_sha):
+        raise ValueError("Invalid Sing-box revision")
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())

@@ -7,8 +7,9 @@ import (
 
 // Device privacy policy precedes profile rules. Region now controls only the
 // optional Russian network bypass (geo/TLD rules); application policy remains
-// independently configurable. Full tunnel deliberately wins over all bypasses.
+// independently configurable. The Russian network exception has highest priority.
 func applyRegionalPrivacy(options *option.Options, h *HiddifyOptions) {
+	defer applyRussianNetworkPriority(options, h)
 	defer applyNetworkPrivacy(options)
 	if h.HandbookRouting {
 		return

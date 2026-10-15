@@ -11,16 +11,19 @@ import (
 )
 
 type HiddifyOptions struct {
-	WifiVPNSharing         bool     `json:"wifi-vpn-sharing,omitempty"`
-	LanSharingPassword     string   `json:"lan-sharing-password,omitempty"`
-	HandbookRouting        bool     `json:"handbook-routing,omitempty"`
-	HandbookProxy          bool     `json:"handbook-proxy,omitempty"`
-	HandbookDirect         bool     `json:"handbook-direct,omitempty"`
-	HandbookProxySites     string   `json:"handbook-proxy-sites,omitempty"`
-	HandbookDirectSites    string   `json:"handbook-direct-sites,omitempty"`
-	ModernAllowUDP         bool     `json:"privacy-modern-allow-udp,omitempty"`
-	ModernProtocolsOnly    bool     `json:"privacy-modern-protocols-only,omitempty"`
-	AdaptiveNetwork        bool     `json:"adaptive-network,omitempty"`
+	WifiVPNSharing      bool   `json:"wifi-vpn-sharing,omitempty"`
+	LanSharingPassword  string `json:"lan-sharing-password,omitempty"`
+	HandbookRouting     bool   `json:"handbook-routing,omitempty"`
+	HandbookProxy       bool   `json:"handbook-proxy,omitempty"`
+	HandbookDirect      bool   `json:"handbook-direct,omitempty"`
+	HandbookProxySites  string `json:"handbook-proxy-sites,omitempty"`
+	HandbookDirectSites string `json:"handbook-direct-sites,omitempty"`
+	ModernAllowUDP      bool   `json:"privacy-modern-allow-udp,omitempty"`
+	ModernProtocolsOnly bool   `json:"privacy-modern-protocols-only,omitempty"`
+	AdaptiveNetwork     bool   `json:"adaptive-network,omitempty"`
+
+	PrivacyRussianNetworkBypass bool `json:"privacy-russian-network-bypass,omitempty"`
+
 	PrivacyRoutingMode     string   `json:"privacy-routing-mode,omitempty"`
 	PrivacyDirectPackages  []string `json:"privacy-direct-packages,omitempty"`
 	PrivacyProxyPackages   []string `json:"privacy-proxy-packages,omitempty"`

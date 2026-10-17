@@ -32,7 +32,7 @@ jobs:
       - name: Test olcRTC share parsing
         run: |
           go mod tidy
-          go test -ldflags=-checklinkname=0 ./v2/config/paneluri ./v2/config
+          go test -ldflags=-checklinkname=0 -tags with_quic,with_utls,with_gvisor,with_wireguard,with_clash_api,with_grpc ./v2/config/paneluri ./v2/config
 
   android-arm64:
     needs: verify

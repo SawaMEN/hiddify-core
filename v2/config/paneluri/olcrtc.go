@@ -25,7 +25,9 @@ func olcRTCLink(link string) (Result, error) {
     decoded, err := hex.DecodeString(key)
     if err != nil || len(decoded) != 32 { return invalid("key must be a 64-character hexadecimal value") }
     route := body[:hash]
-    at := strings.LastIndexByte(route, '@')
+    // The room is a URL/identifier and may legitimately contain '@'.
+    // Only the first '@' terminates the provider/transport header.
+    at := strings.IndexByte(route, '@')
     if at <= 0 || at == len(route)-1 { return invalid("missing room identifier") }
     room := route[at+1:]
     if len(room) > 2048 { return invalid("room identifier is too long") }

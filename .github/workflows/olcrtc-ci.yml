@@ -1,0 +1,143 @@
+name: olcRTC compatibility checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "v2/config/paneluri/**"
+      - "hiddify-sing-box"
+      - ".github/workflows/olcrtc-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check olcRTC native outbound and dependencies
+        working-directory: hiddify-sing-box
+        run: |
+          go mod tidy
+          go test -ldflags=-checklinkname=0 ./protocol/olcrtc ./include
+      - name: Test olcRTC share parsing
+        run: |
+          go mod tidy
+          go test -ldflags=-checklinkname=0 -tags with_quic,with_utls,with_gvisor,with_wireguard,with_clash_api,with_grpc ./v2/config/paneluri ./v2/config
+
+  android-arm64:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-java@v6.0.1
+        with:
+          distribution: zulu
+          java-version: '17'
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r30
+      - name: Prepare and build olcRTC Android ARM64 AAR
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          go mod tidy
+          make android-arm64
+          go run ./cmd/internal/build_root
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct, zipfile
+          aar = Path("bin/hiddify-core.aar")
+          root = Path("bin/libhiddify-root.so")
+          if not aar.is_file() or aar.stat().st_size < 100000:
+              raise SystemExit("Missing Android AAR")
+          with zipfile.ZipFile(aar) as archive:
+              if archive.testzip() is not None or not any(x.startswith("jni/arm64-v8a/") and x.endswith(".so") for x in archive.namelist()):
+                  raise SystemExit("Android AAR is not a valid arm64 binary package")
+          with root.open("rb") as fd:
+              head = fd.read(20)
+          if len(head) != 20 or head[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<HH", head, 16) != (3, 183):
+              raise SystemExit("Android companion must be a 64-bit ARM64 PIE executable")
+          PY
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: olcrtc-core-android-arm64-debug
+          path: |
+            bin/hiddify-core.aar
+            bin/libhiddify-root.so
+          if-no-files-found: error
+          retention-days: 7
+
+  integrated-apk:
+    name: Build development APK against olcRTC native core
+    needs: android-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout application olcRTC branch
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: SawaMEN/hiddify-app
+          ref: feature/olcrtc-protocol
+          persist-credentials: false
+      - name: Download this workflow's freshly built core
+        uses: actions/download-artifact@v4
+        with:
+          name: olcrtc-core-android-arm64-debug
+          path: olcrtc-artifacts
+      - name: Install matched Android native core
+        run: |
+          set -euo pipefail
+          test -s olcrtc-artifacts/hiddify-core.aar
+          test -s olcrtc-artifacts/libhiddify-root.so
+          mkdir -p android/app/libs android/app/src/main/jniLibs/arm64-v8a
+          cp olcrtc-artifacts/hiddify-core.aar android/app/libs/hiddify-core.aar
+          cp olcrtc-artifacts/libhiddify-root.so android/app/src/main/jniLibs/arm64-v8a/libhiddify-root.so
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          aar = pathlib.Path("android/app/libs/hiddify-core.aar")
+          manifest = {"source":"olcrtc-branch-ci","core_sha":os.environ["GITHUB_SHA"],
+                      "aar_sha256":hashlib.sha256(aar.read_bytes()).hexdigest(),
+                      "warning":"development-only; not a stable or published core"}
+          pathlib.Path("android/app/libs/hiddify-core.provenance.json").write_text(json.dumps(manifest,indent=2)+"\n")
+          PY
+      - uses: actions/setup-java@v6.0.1
+        with:
+          distribution: zulu
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6.4.0
+      - name: Install Android build dependencies
+        run: |
+          set -euo pipefail
+          manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$manager" || manager="$(command -v sdkmanager)"
+          "$manager" "ndk;30.0.16248370" "platforms;android-24" "platforms;android-37.0" "build-tools;37.0.0" "cmake;3.22.1"
+      - name: Build debug-signed integration APK
+        env:
+          CHANNEL: dev
+        run: |
+          ./android/gradlew -p android :app:assembleRelease --console=plain
+          test -s build/app/outputs/apk/release/app-release.apk
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: olcrtc-integrated-android-arm64-apk
+          path: build/app/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 7

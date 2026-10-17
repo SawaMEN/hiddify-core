@@ -13,6 +13,8 @@ func TestOLCRTCShareTransportParameters(t *testing.T) {
     }{
         {"olcrtc://jitsi?datachannel@https://meet.jit.si/myroom#" + key + "$Jitsi / primary",
             "jitsi", "datachannel", "https://meet.jit.si/myroom", "Jitsi / primary", "", nil},
+        {"olcrtc://jitsi?datachannel@https://meet.jit.si/room@group#" + key,
+            "jitsi", "datachannel", "https://meet.jit.si/room@group", "olcRTC", "", nil},
         {"olcrtc://wbstream?vp8channel<vp8-fps=60&vp8-batch=64>@room1#" + key,
             "wbstream", "vp8channel", "room1", "olcRTC", "vp8_fps", 60},
         {"olcrtc://wbstream?seichannel<fps=30&batch=64&frag=900&ack-ms=2000>@room1#" + key,

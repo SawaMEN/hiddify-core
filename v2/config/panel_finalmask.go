@@ -18,6 +18,12 @@ var finalMaskQueryPattern = regexp.MustCompile(`[?&]fm=([^&#]*)`)
 // finalMaskParam returns the Xray finalmask JSON of a link: the fm= query parameter
 // (URL-encoded) or, for base64 vmess links, the "fm" key (a JSON string or object).
 func finalMaskParam(config string) (string, error) {
+	// olcRTC's room may itself be a URL with arbitrary query parameters.
+	// Those parameters belong to the provider, not to this config parser.
+	scheme, _, _ := strings.Cut(config, "://")
+	if strings.EqualFold(scheme, "olcrtc") {
+		return "", nil
+	}
 	if match := finalMaskQueryPattern.FindStringSubmatch(config); match != nil {
 		return url.QueryUnescape(match[1])
 	}

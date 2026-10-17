@@ -60,6 +60,11 @@ func parsePanelLinks(ctx context.Context, content string) (options *option.Optio
 			}) >= 0 {
 				return nil, true, fmt.Errorf("share line %d: invalid proxy scheme", number+1)
 			}
+			// olcRTC owns its provider sockets and cannot dial through another
+			// outbound. Reject a chain we would otherwise silently ignore.
+			if scheme == "olcrtc" && detour != "" {
+				return nil, true, fmt.Errorf("share line %d: olcrtc cannot use a proxy detour", number+1)
+			}
 			var parsed *option.Options
 			if paneluri.Handles(scheme) {
 				result, e := paneluri.Parse(link)

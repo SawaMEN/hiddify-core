@@ -5,6 +5,18 @@ on:
     branches: [main]
     paths:
       - "v2/config/paneluri/**"
+      - "v2/config/panel_links.go"
+      - "v2/config/panel_finalmask.go"
+      - "v2/config/olcrtc_test.go"
+      - "hiddify-sing-box"
+      - ".github/workflows/olcrtc-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "v2/config/paneluri/**"
+      - "v2/config/panel_links.go"
+      - "v2/config/panel_finalmask.go"
+      - "v2/config/olcrtc_test.go"
       - "hiddify-sing-box"
       - ".github/workflows/olcrtc-ci.yml"
   workflow_dispatch:
@@ -91,11 +103,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout application olcRTC branch
+      - name: Checkout current application
         uses: actions/checkout@v7.0.1
         with:
           repository: SawaMEN/hiddify-app
-          ref: feature/olcrtc-protocol
+          ref: main
           persist-credentials: false
       - name: Download this workflow's freshly built core
         uses: actions/download-artifact@v4
@@ -113,7 +125,7 @@ jobs:
           python3 - <<'PY'
           import hashlib, json, os, pathlib
           aar = pathlib.Path("android/app/libs/hiddify-core.aar")
-          manifest = {"source":"olcrtc-branch-ci","core_sha":os.environ["GITHUB_SHA"],
+          manifest = {"source":"olcrtc-integration-ci","core_sha":os.environ["GITHUB_SHA"],
                       "aar_sha256":hashlib.sha256(aar.read_bytes()).hexdigest(),
                       "warning":"development-only; not a stable or published core"}
           pathlib.Path("android/app/libs/hiddify-core.provenance.json").write_text(json.dumps(manifest,indent=2)+"\n")

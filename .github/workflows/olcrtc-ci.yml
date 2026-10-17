@@ -33,3 +33,36 @@ jobs:
         run: |
           go mod tidy
           go test -ldflags=-checklinkname=0 ./v2/config/paneluri ./v2/config
+
+  android-arm64:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-java@v6.0.1
+        with:
+          distribution: zulu
+          java-version: '17'
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r30
+      - name: Prepare and build olcRTC Android ARM64 AAR
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          go mod tidy
+          make android-arm64
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: olcrtc-core-android-arm64-debug
+          path: bin/hiddify-core.aar
+          if-no-files-found: error
+          retention-days: 7

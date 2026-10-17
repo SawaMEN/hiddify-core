@@ -27,6 +27,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Check panel overlay preparation
+        run: python3 -m unittest discover -s tools -p 'test_prepare_panel_kernel.py'
       - name: Resolve source revision
         id: resolve
         shell: bash

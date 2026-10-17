@@ -4,6 +4,7 @@
 The core release workflow checks out SawaMEN/3x-ui for overlays, then rewrites
 only this disposable checkout's manifest and expected process identity.
 """
+import difflib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,43 @@ def gitlink(name):
     return fields[2]
 
 
+def prepare_runtime_dependencies(panel, module):
+    """Rebase the panel's additive dependency overlay onto this exact core."""
+    patch = panel / "deploy/hiddify/runtime-dependencies.patch"
+    source = patch.read_text()
+    if not source.startswith("--- a/go.mod\n+++ b/go.mod\n"):
+        raise ValueError("Unexpected runtime dependency overlay target")
+    additions = []
+    for line in source.splitlines():
+        if line.startswith("-") and not line.startswith("--- "):
+            raise ValueError("Runtime dependency overlay must only add requirements")
+        if not line.startswith("+") or line.startswith("+++ "):
+            continue
+        match = re.fullmatch(r"\+\s*([A-Za-z0-9._~/-]+) (v[^\s]+)(?: // indirect)?", line)
+        if not match:
+            raise ValueError("Unexpected runtime dependency overlay change")
+        name, version = match.groups()
+        if not re.search(r"(?m)^\s*" + re.escape(name) + r"\s+", module):
+            additions.append(f"\t{name} {version} // indirect\n")
+    updated = module
+    if additions:
+        if "require (\n" not in module:
+            raise ValueError("Missing core requirement block")
+        updated = module.replace("require (\n", "require (\n" + "".join(additions), 1)
+    patch.write_text("".join(difflib.unified_diff(
+        module.splitlines(keepends=True), updated.splitlines(keepends=True),
+        fromfile="a/go.mod", tofile="b/go.mod",
+    )))
+    # An already satisfied overlay is empty and needs no git apply invocation.
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    command = 'git -C "$task_source/core" apply "$task_root/deploy/hiddify/runtime-dependencies.patch"'
+    if script.count(command) != 1:
+        raise ValueError("Cannot locate runtime dependency overlay application")
+    script = script.replace(command, '[ ! -s "$task_root/deploy/hiddify/runtime-dependencies.patch" ] || ' + command)
+    build.write_text(script)
+
+
 def prepare(panel):
     core_sha = os.environ["KERNEL_COMMIT"]
     channel = os.environ["KERNEL_CHANNEL"]
@@ -40,6 +78,8 @@ def prepare(panel):
     sing_sha = os.environ.get("SINGBOX_COMMIT") or pinned_sing_sha
     if not re.fullmatch(r"[0-9a-f]{40}", sing_sha):
         raise ValueError("Invalid Sing-box revision")
+
+    prepare_runtime_dependencies(panel, Path("go.mod").read_text())
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())

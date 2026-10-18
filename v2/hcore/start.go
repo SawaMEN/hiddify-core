@@ -93,12 +93,12 @@ type noConfigPersistenceKey struct{}
 // writes the raw profile or expanded (credential-bearing) configuration to
 // the normal Hiddify AppSettings/current-config.json disk locations.
 func StartServiceWithoutConfigPersistence(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
-    return StartService(context.WithValue(ctx, noConfigPersistenceKey{}, true), in)
+	return StartService(context.WithValue(ctx, noConfigPersistenceKey{}, true), in)
 }
 
 // Caller holds static.lock throughout the lifecycle operation.
 func startServiceLocked(ctx context.Context, in *StartRequest, epoch uint64) (coreResponse *CoreInfoResponse, err error) {
-    persistConfig := ctx.Value(noConfigPersistenceKey{}) == nil
+	persistConfig := ctx.Value(noConfigPersistenceKey{}) == nil
 	startupCtx, cancel := context.WithCancel(ctx)
 	static.startLock.Lock()
 	if epoch != static.startEpoch.Load() {

@@ -20,6 +20,9 @@ func TestPacketTunnelSettingsDoNotExposeProxyListeners(t *testing.T) {
 	if s.MixedPort != 0 || s.DirectPort != 0 || s.TProxyPort != 0 || s.RedirectPort != 0 {
 		t.Fatal("local listener ports must be disabled")
 	}
+	if s.LogFile != "/dev/null" {
+		t.Fatal("macOS Packet Tunnel must not persist proxy logs")
+	}
 	if s.EnableFullConfig || s.MTU != 1500 {
 		t.Fatal("packet tunnel must use a bounded MTU and its own managed routing")
 	}

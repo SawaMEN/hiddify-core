@@ -5,6 +5,8 @@ package mobile
 import (
 	"encoding/json"
 	"errors"
+
+	"github.com/sagernet/sing-box/experimental/libbox"
 	"strings"
 
 	"github.com/hiddify/hiddify-core/v2/config"
@@ -28,6 +30,7 @@ func packetTunnelSettings() *config.HiddifyOptions {
 	settings.RedirectPort = 0
 	settings.DirectPort = 0
 	settings.MTU = 1500
+	settings.LogFile = "/dev/null"
 	settings.EnableFullConfig = false
 	// The built-in remote and direct resolvers must not use plaintext UDP/53.
 	// Upstream DoH traffic is still subject to actual-network leak testing.
@@ -56,5 +59,9 @@ func StartPacketTunnel(configContent string) error {
 	if err != nil {
 		return err
 	}
-	return Start("", configContent)
+	_, err = hcore.StartServiceWithoutConfigPersistence(
+		libbox.BaseContext(nil),
+		&hcore.StartRequest{ConfigContent: configContent},
+	)
+	return err
 }

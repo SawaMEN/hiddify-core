@@ -85,8 +85,20 @@ func StartService(ctx context.Context, in *StartRequest) (coreResponse *CoreInfo
 	return startServiceLocked(ctx, in, epoch)
 }
 
+// noConfigPersistenceKey is a per-start capability used by macOS Network
+// Extensions. The ordinary desktop/Android StartService path remains unchanged.
+type noConfigPersistenceKey struct{}
+
+// StartServiceWithoutConfigPersistence starts the same service but never
+// writes the raw profile or expanded (credential-bearing) configuration to
+// the normal Hiddify AppSettings/current-config.json disk locations.
+func StartServiceWithoutConfigPersistence(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
+	return StartService(context.WithValue(ctx, noConfigPersistenceKey{}, true), in)
+}
+
 // Caller holds static.lock throughout the lifecycle operation.
 func startServiceLocked(ctx context.Context, in *StartRequest, epoch uint64) (coreResponse *CoreInfoResponse, err error) {
+	persistConfig := ctx.Value(noConfigPersistenceKey{}) == nil
 	startupCtx, cancel := context.WithCancel(ctx)
 	static.startLock.Lock()
 	if epoch != static.startEpoch.Load() {
@@ -125,16 +137,19 @@ func startServiceLocked(ctx context.Context, in *StartRequest, epoch uint64) (co
 	if err != nil {
 		return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
 	}
-	saveLastStartRequest(in)
+	if persistConfig {
+		saveLastStartRequest(in)
+	}
 
 	Log(LogLevel_DEBUG, LogType_CORE, "Main Service pre start")
 	if err := service_manager.OnMainServicePreStart(options); err != nil {
 		return errorWrapper(MessageType_ERROR_EXTENSION, err)
 	}
-	currentBuildConfigPath := filepath.Join(sWorkingPath, "data/current-config.json")
-	Log(LogLevel_DEBUG, LogType_CORE, "Saving config to ", currentBuildConfigPath)
-
-	config.SaveCurrentConfig(ctx, currentBuildConfigPath, *options)
+	if persistConfig {
+		currentBuildConfigPath := filepath.Join(sWorkingPath, "data/current-config.json")
+		Log(LogLevel_DEBUG, LogType_CORE, "Saving config to ", currentBuildConfigPath)
+		config.SaveCurrentConfig(ctx, currentBuildConfigPath, *options)
+	}
 	if static.debug.Load() {
 		pout, err := options.MarshalJSONContext(ctx)
 		if err != nil {

@@ -92,6 +92,9 @@ func parseHandbook(body []byte) ([]string, []string, error) {
 func loadHandbook(ctx context.Context, sourceURL string) ([]byte, error) {
 	handbookCacheLock.Lock()
 	defer handbookCacheLock.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	sum := sha256.Sum256([]byte(sourceURL))
 	path := filepath.Join("data", "handbook", hex.EncodeToString(sum[:])+".json")
 	cached, cacheErr := os.ReadFile(path)
@@ -124,6 +127,10 @@ func loadHandbook(ctx context.Context, sourceURL string) ([]byte, error) {
 		}
 	}
 	if err != nil {
+		// A cancelled startup must stop even when a previous cache is available.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if cached != nil {
 			return cached, nil
 		}

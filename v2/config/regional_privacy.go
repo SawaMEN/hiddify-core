@@ -9,8 +9,11 @@ import (
 // optional Russian network bypass (geo/TLD rules); application policy remains
 // independently configurable. The Russian network exception has highest priority.
 func applyRegionalPrivacy(options *option.Options, h *HiddifyOptions) {
-	defer applyRussianNetworkPriority(options, h)
+	// Defers run in reverse order: filters must precede every route action,
+	// including the Russian direct exception. That exception still wins over
+	// community, application and full-tunnel destination choices.
 	defer applyNetworkPrivacy(options)
+	defer applyRussianNetworkPriority(options, h)
 	if h.HandbookRouting {
 		return
 	}

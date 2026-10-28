@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -50,6 +51,83 @@ func TestHandbookURLMultipleSelections(t *testing.T) {
 	}
 	if !reflect.DeepEqual(u.Query()["site"], []string{"youtube.com", "discord.com", "example.org"}) {
 		t.Fatal(u.Query())
+	}
+}
+
+func TestHandbookURLLegacyWhitespaceSeparators(t *testing.T) {
+	u, err := url.Parse(handbookURL("iplist.my-handbook.ru", "YouTube.com\tdiscord.com\r\nexample.org"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(u.Query()["site"], []string{"youtube.com", "discord.com", "example.org"}) {
+		t.Fatalf("selection differs from the Android client: %v", u.Query())
+	}
+}
+
+func TestHandbookCancelledStartupDoesNotUseFreshOrStaleCache(t *testing.T) {
+	t.Chdir(t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Write([]byte(handbookFixture))
+	}))
+	defer server.Close()
+	if _, err := loadHandbook(ctx, server.URL); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if _, err := loadHandbook(ctx, server.URL); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled startup reused a fresh cache: %v", err)
+	}
+	files, err := os.ReadDir("data/handbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		past := time.Now().Add(-48 * time.Hour)
+		if err := os.Chtimes("data/handbook/"+file.Name(), past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := loadHandbook(ctx, server.URL); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled startup reused a stale cache: %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("cancelled startup sent a request: %d", requests)
+	}
+}
+
+func TestHandbookCancelledRefreshDoesNotFallBackToCache(t *testing.T) {
+	t.Chdir(t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Write([]byte(handbookFixture))
+			return
+		}
+		cancel()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	if _, err := loadHandbook(ctx, server.URL); err != nil {
+		t.Fatal(err)
+	}
+	files, err := os.ReadDir("data/handbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		past := time.Now().Add(-48 * time.Hour)
+		if err := os.Chtimes("data/handbook/"+file.Name(), past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := loadHandbook(ctx, server.URL); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled refresh reused the old cache: %v", err)
 	}
 }
 

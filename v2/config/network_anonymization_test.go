@@ -1,11 +1,49 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
 )
+
+func TestNetworkPrivacyFiltersPrecedeRussianBypassInEveryMode(t *testing.T) {
+	defer SetNetworkPrivacyPolicyJSON("{}")
+	if err := SetNetworkPrivacyPolicyJSON(`{"privacy-anonymization-block-quic":true,"privacy-anonymization-block-stun":true,"privacy-anonymization-block-plain-http":true,"privacy-anonymization-isolate-lan":true}`); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"off", "ru-bypass", "proxy-selected"} {
+		for _, full := range []bool{false, true} {
+			for _, community := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/full=%v/community=%v", mode, full, community), func(t *testing.T) {
+					h := DefaultHiddifyOptions()
+					h.PrivacyRoutingMode, h.FullTunnel, h.HandbookRouting = mode, full, community
+					h.PrivacyRussianNetworkBypass = true
+					options := &option.Options{Route: &option.RouteOptions{}, DNS: &option.DNSOptions{}}
+					applyRegionalPrivacy(options, h)
+					rejects := 0
+					for _, rule := range options.Route.Rules {
+						r := rule.DefaultOptions
+						if r.Action == C.RuleActionTypeReject {
+							rejects++
+						}
+						if r.Action == C.RuleActionTypeRoute {
+							if rejects != 4 {
+								t.Fatalf("destination route bypasses enabled privacy filters: saw %d rejects", rejects)
+							}
+							if r.RouteOptions.Outbound != OutboundDirectTag || len(r.DomainSuffix) == 0 || r.DomainSuffix[0] != "ru" {
+								t.Fatal("Russian network exception must still be the first destination route")
+							}
+							return
+						}
+					}
+					t.Fatal("missing Russian destination route")
+				})
+			}
+		}
+	}
+}
 
 func TestNetworkPrivacyPolicyPrependsExperimentalFilters(t *testing.T) {
 	defer SetNetworkPrivacyPolicyJSON("{}")

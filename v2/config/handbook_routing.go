@@ -3,22 +3,11 @@ package config
 import (
 	"context"
 	"fmt"
-	"net/url"
-	"strings"
 
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/json/badoption"
 )
-
-func handbookURL(host, sites string) string {
-	q := url.Values{"format": {"json"}}
-	// The provider accepts multiple site= parameters, not a comma-separated value.
-	for _, site := range strings.FieldsFunc(sites, func(c rune) bool { return c == ',' || c == ';' || c == '\n' || c == ' ' }) {
-		q.Add("site", strings.ToLower(site))
-	}
-	return "https://" + host + "/?" + q.Encode()
-}
 
 func applyHandbookRouting(ctx context.Context, options *option.Options, h *HiddifyOptions) error {
 	rules := []option.Rule{

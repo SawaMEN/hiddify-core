@@ -1,8 +1,9 @@
 module github.com/hiddify/hiddify-core
 
-go 1.26.8
+go 1.26.10
 
 require (
+	github.com/SawaMEN/VetroffProxy v0.1.1-0.20261030200803-b81ec45c6865
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
 	buf.build/go/protovalidate v1.2.0 // indirect
 	buf.build/go/protoyaml v0.7.0 // indirect

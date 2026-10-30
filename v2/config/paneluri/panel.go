@@ -32,7 +32,7 @@ func DecodeBase64(text string) ([]byte, error) {
 
 func Handles(scheme string) bool {
 	switch scheme {
-	case "snell", "mieru", "mierus", "vpn", "tt", "trusttunnel", "sudoku", "fptn", "openflux", "pingtunnel", "olcrtc":
+	case "snell", "mieru", "mierus", "vpn", "tt", "trusttunnel", "sudoku", "fptn", "openflux", "pingtunnel", "olcrtc", "vetroff":
 		return true
 	}
 	return false
@@ -46,6 +46,8 @@ func Parse(link string) (Result, error) {
 	switch strings.ToLower(scheme) {
 	case "olcrtc":
 		return olcRTCLink(link)
+	case "vetroff":
+		return vetroffLink(link)
 	case "sudoku":
 		return sudokuLink(link)
 	case "fptn":

@@ -62,6 +62,9 @@ func parsePanelLinks(ctx context.Context, content string) (options *option.Optio
 			}
 			// olcRTC owns its provider sockets and cannot dial through another
 			// outbound. Reject a chain we would otherwise silently ignore.
+			if scheme == "vetroff" && len(chain) > 1 {
+				return nil, true, fmt.Errorf("share line %d: vetroff cannot be chained with another proxy", number+1)
+			}
 			if scheme == "olcrtc" && detour != "" {
 				return nil, true, fmt.Errorf("share line %d: olcrtc cannot use a proxy detour", number+1)
 			}

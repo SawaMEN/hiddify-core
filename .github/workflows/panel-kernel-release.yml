@@ -137,7 +137,7 @@ jobs:
           set -euo pipefail
           version=$(python3 -c 'import json; print(json.load(open("panel-source/docs/hiddify-core-target.json"))["target"]["version"])')
           sing=$(git rev-parse HEAD:hiddify-sing-box | cut -c 1-12)
-          make android-arm64 CODE_VERSION="-X github.com/hiddify/hiddify-core/v2/hcommon/constants.Version=$version -X github.com/sagernet/sing-box/constant.Version=sawamen-$sing"
+          # Resolve transitive module sums for the selected Sing-box gitlink before gomobile.\n          go mod tidy\n          make android-arm64 CODE_VERSION="-X github.com/hiddify/hiddify-core/v2/hcommon/constants.Version=$version -X github.com/sagernet/sing-box/constant.Version=sawamen-$sing"
           go run ./cmd/internal/build_root
       - name: Package and validate mobile assets
         run: |

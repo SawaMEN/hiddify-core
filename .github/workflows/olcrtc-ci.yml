@@ -21,6 +21,11 @@ on:
       - ".github/workflows/olcrtc-ci.yml"
   workflow_dispatch:
 
+# Obsolete PR builds should not block verification of the latest changes.
+concurrency:
+  group: olcrtc-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

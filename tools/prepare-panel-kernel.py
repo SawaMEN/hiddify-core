@@ -86,9 +86,12 @@ def prepare(panel):
     target = lock["target"]
     if target["repository"] != "https://github.com/SawaMEN/hiddify-core":
         raise ValueError("Unexpected kernel repository")
-    suffix = re.search(r"(-panel[0-9]+)$", target["version"])
+    # Panel may ship a masking profile (maskN) instead of the legacy panelN
+    # profile. Both are explicit, numbered release identities; never invent a
+    # fallback version, which would break the app's verified core provenance.
+    suffix = re.search(r"(-(?:panel|mask)[0-9]+)$", target["version"])
     if not suffix:
-        raise ValueError("Cannot determine patch profile")
+        raise ValueError("Cannot determine patch profile (expected -panelN or -maskN)")
     prefix = "sawamen-dev" if channel == "dev" else "sawamen"
     version = f"{prefix}-{core_sha[:12]}-{sing_sha[:12]}{suffix.group(1)}"
     target["commit"] = core_sha

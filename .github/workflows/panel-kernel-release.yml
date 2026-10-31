@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Update dev builds follow the modified fork's main branch. Stable builds
-  # retain their reviewed gitlink so releases remain reproducible.
+  # Both dev and stable releases use the reviewed gitlink from this core commit.
+  # Never resolve an unpinned upstream main during CI or publication.
   resolve_singbox:
     name: Resolve Sing-box revision
     runs-on: ubuntu-latest
@@ -34,11 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" == "refs/heads/update" ]]; then
-            commit=$(git ls-remote https://github.com/SawaMEN/hiddify-sing-box.git refs/heads/main | awk '$2 == "refs/heads/main" {print $1}')
-          else
-            commit=$(git ls-tree HEAD -- hiddify-sing-box | awk '$1 == "160000" && $2 == "commit" {print $3}')
-          fi
+          commit=$(git ls-tree HEAD -- hiddify-sing-box | awk '$1 == "160000" && $2 == "commit" {print $3}')
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not resolve Sing-box source revision" >&2; exit 1; }
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "Selected Sing-box revision: $commit"

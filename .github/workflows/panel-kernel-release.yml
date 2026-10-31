@@ -61,7 +61,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version-file: go.mod
           cache-dependency-path: panel-source/go.sum
       - name: Set exact source and release identity
         env:
@@ -113,7 +113,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.10'
+          go-version-file: go.mod
           cache-dependency-path: go.sum
       - uses: actions/setup-java@v6
         with:

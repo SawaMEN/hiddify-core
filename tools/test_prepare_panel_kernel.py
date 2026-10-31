@@ -25,6 +25,35 @@ class ReleaseProfileTest(unittest.TestCase):
 
 
 
+class ModuleSourceCheckTest(unittest.TestCase):
+    def test_rebases_stale_toolchain_evidence(self):
+        lock = {"source_checks": [
+            {"path": "go.mod", "contains": "go 1.26.8"},
+            {"path": "cmd/cmd_sing_run.go", "contains": "srun"},
+        ]}
+        prepare.refresh_go_module_source_check(
+            lock, "module example.com/core\\n\\ngo 1.26.10\\n\\ngodebug multipathtcp=0\\n"
+        )
+        self.assertEqual("go 1.26.10", lock["source_checks"][0]["contains"])
+        self.assertEqual("srun", lock["source_checks"][1]["contains"])
+
+    def test_rejects_malformed_or_missing_go_evidence(self):
+        for checks in ([], [{"path": "go.mod", "contains": "anything"}],
+                       [{"path": "go.mod", "contains": "go 1.25"},
+                        {"path": "go.mod", "contains": "go 1.26"}]):
+            with self.subTest(checks=checks), self.assertRaises(ValueError):
+                prepare.refresh_go_module_source_check(
+                    {"source_checks": checks}, "module example.com/core\\ngo 1.26.10\\n"
+                )
+
+    def test_rejects_missing_go_declaration(self):
+        with self.assertRaises(ValueError):
+            prepare.refresh_go_module_source_check(
+                {"source_checks": [{"path": "go.mod", "contains": "go 1.26.8"}]},
+                "module example.com/core\\n",
+            )
+
+
 class DependencyOverlayTest(unittest.TestCase):
     def fixture(self, folder, patch):
         panel = folder / "panel"

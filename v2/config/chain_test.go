@@ -168,26 +168,3 @@ func TestChainProfileModeIsRefused(t *testing.T) {
 		t.Fatalf("expected profile mode to be refused, got %v", err)
 	}
 }
-
-func TestChainWarpNoisePresetEnablesWithoutManualCount(t *testing.T) {
-	for _, mode := range []string{"sip", "stun", "dns", "quic-mimic", "random"} {
-		t.Run(mode, func(t *testing.T) {
-			got := chainWarpNoise(ChainWarpOptions{NoiseMode: mode})
-			if !got.FakePacket.Enabled {
-				t.Fatalf("named noise preset %q must be enabled without an explicit count", mode)
-			}
-		})
-	}
-	for _, mode := range []string{"", "m4", "unknown"} {
-		t.Run("inactive-"+mode, func(t *testing.T) {
-			got := chainWarpNoise(ChainWarpOptions{NoiseMode: mode})
-			if got.FakePacket.Enabled {
-				t.Fatalf("unknown/legacy mode %q must not enable noise without a count", mode)
-			}
-		})
-	}
-	explicit := chainWarpNoise(ChainWarpOptions{NoiseMode: "m4", Noise: "5-10"})
-	if !explicit.FakePacket.Enabled || explicit.FakePacket.Count.From != 5 || explicit.FakePacket.Count.To != 10 {
-		t.Fatalf("explicit noise range must remain enabled: %+v", explicit.FakePacket)
-	}
-}

@@ -72,6 +72,14 @@ def refresh_go_module_source_check(lock, module):
     if len(checks) != 1 or not re.fullmatch(r"go [0-9]+\.[0-9]+(?:\.[0-9]+)?", checks[0].get("contains", "")):
         raise ValueError("Unexpected panel Go module source check")
     checks[0]["contains"] = match.group(0)
+    # Release builder runs with GOTOOLCHAIN pinned; an older Go patch version
+    # cannot compile a module requiring a newer language/toolchain version.
+    panel_build = lock.get("panel_build")
+    if not isinstance(panel_build, dict) or not re.fullmatch(
+        r"go[0-9]+\.[0-9]+(?:\.[0-9]+)?", str(panel_build.get("toolchain", ""))
+    ):
+        raise ValueError("Unexpected panel Go toolchain setting")
+    panel_build["toolchain"] = "go" + match.group(0)[3:]
 
 
 def patch_profile_suffix(version):

@@ -32,7 +32,7 @@ class ModuleSourceCheckTest(unittest.TestCase):
             {"path": "cmd/cmd_sing_run.go", "contains": "srun"},
         ]}
         prepare.refresh_go_module_source_check(
-            lock, "module example.com/core\\n\\ngo 1.26.10\\n\\ngodebug multipathtcp=0\\n"
+            lock, "module example.com/core\n\ngo 1.26.10\n\ngodebug multipathtcp=0\n"
         )
         self.assertEqual("go 1.26.10", lock["source_checks"][0]["contains"])
         self.assertEqual("srun", lock["source_checks"][1]["contains"])
@@ -43,14 +43,14 @@ class ModuleSourceCheckTest(unittest.TestCase):
                         {"path": "go.mod", "contains": "go 1.26"}]):
             with self.subTest(checks=checks), self.assertRaises(ValueError):
                 prepare.refresh_go_module_source_check(
-                    {"source_checks": checks}, "module example.com/core\\ngo 1.26.10\\n"
+                    {"source_checks": checks}, "module example.com/core\ngo 1.26.10\n"
                 )
 
     def test_rejects_missing_go_declaration(self):
         with self.assertRaises(ValueError):
             prepare.refresh_go_module_source_check(
                 {"source_checks": [{"path": "go.mod", "contains": "go 1.26.8"}]},
-                "module example.com/core\\n",
+                "module example.com/core\n",
             )
 
 

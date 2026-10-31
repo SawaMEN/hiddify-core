@@ -2,6 +2,10 @@ module github.com/hiddify/hiddify-core
 
 go 1.26.10
 
+// Disable implicit MPTCP listeners by default; explicit tcp_multi_path settings still opt in.
+// Go 1.24+ may otherwise enable MPTCP on Linux without a corresponding core option.
+godebug multipathtcp=0
+
 require (
 	github.com/SawaMEN/VetroffProxy v0.1.1-0.20261030200803-b81ec45c6865
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect

@@ -9,6 +9,9 @@ on:
       - "v2/config/panel_finalmask.go"
       - "v2/config/olcrtc_test.go"
       - "hiddify-sing-box"
+      - ".gitmodules"
+      - "go.mod"
+      - "go.sum"
       - ".github/workflows/olcrtc-ci.yml"
   push:
     branches: [main]
@@ -18,8 +21,16 @@ on:
       - "v2/config/panel_finalmask.go"
       - "v2/config/olcrtc_test.go"
       - "hiddify-sing-box"
+      - ".gitmodules"
+      - "go.mod"
+      - "go.sum"
       - ".github/workflows/olcrtc-ci.yml"
   workflow_dispatch:
+
+# Obsolete PR builds should not block verification of the latest changes.
+concurrency:
+  group: olcrtc-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

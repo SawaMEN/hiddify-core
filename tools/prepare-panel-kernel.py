@@ -63,6 +63,16 @@ def prepare_runtime_dependencies(panel, module):
     build.write_text(script)
 
 
+def patch_profile_suffix(version):
+    """Only preserve known numbered patch profiles from the panel lock."""
+    if not isinstance(version, str):
+        raise ValueError("Invalid patch profile")
+    match = re.search(r"(-(?:panel|mask)[0-9]+)$", version)
+    if not match:
+        raise ValueError("Cannot determine patch profile (expected -panelN or -maskN)")
+    return match.group(1)
+
+
 def prepare(panel):
     core_sha = os.environ["KERNEL_COMMIT"]
     channel = os.environ["KERNEL_CHANNEL"]
@@ -86,11 +96,11 @@ def prepare(panel):
     target = lock["target"]
     if target["repository"] != "https://github.com/SawaMEN/hiddify-core":
         raise ValueError("Unexpected kernel repository")
-    suffix = re.search(r"(-panel[0-9]+)$", target["version"])
-    if not suffix:
-        raise ValueError("Cannot determine patch profile")
+    # Panel's current lock can use -maskN in addition to older -panelN.
+    # Keep the exact suffix so all release assets agree on their identity.
+    suffix = patch_profile_suffix(target["version"])
     prefix = "sawamen-dev" if channel == "dev" else "sawamen"
-    version = f"{prefix}-{core_sha[:12]}-{sing_sha[:12]}{suffix.group(1)}"
+    version = f"{prefix}-{core_sha[:12]}-{sing_sha[:12]}{suffix}"
     target["commit"] = core_sha
     target["version"] = version
     target["submodules"]["hiddify-sing-box"] = sing_sha

@@ -20,7 +20,9 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  # The reusable release workflow declares a write-scoped publish job.
+  # Its publish condition excludes pull_request and non-release branches.
+  contents: write
 
 jobs:
   run:

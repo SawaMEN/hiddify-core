@@ -43,6 +43,33 @@ jobs:
           sha=$(git ls-tree HEAD -- hiddify-sing-box | awk '$1 == "160000" && $2 == "commit" {print $3}')
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid pinned Sing-box revision" >&2; exit 1; }
           echo "Testing reviewed Sing-box gitlink: $sha"
+      - name: Checkout the 3x-ui panel release contract
+        uses: actions/checkout@v7
+        with:
+          repository: SawaMEN/3x-ui
+          ref: main
+          path: panel-source
+          persist-credentials: false
+      - name: Validate the panel overlay and release contract against this commit
+        env:
+          KERNEL_COMMIT: ${{ github.sha }}
+          KERNEL_CHANNEL: dev
+        run: |
+          set -euo pipefail
+          python3 tools/prepare-panel-kernel.py panel-source
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+
+          module = pathlib.Path("go.mod").read_text()
+          match = re.search(r"(?m)^go [0-9]+\.[0-9]+(?:\.[0-9]+)?$", module)
+          assert match is not None, "Missing Go version"
+          manifest = json.loads(pathlib.Path("panel-source/docs/hiddify-core-target.json").read_text())
+          checks = [x for x in manifest["source_checks"] if x["path"] == "go.mod"]
+          assert len(checks) == 1 and checks[0]["contains"] == match.group(0)
+          assert manifest["panel_build"]["toolchain"] == "go" + match.group(0)[3:]
+          PY
 
   run:
     needs: preflight

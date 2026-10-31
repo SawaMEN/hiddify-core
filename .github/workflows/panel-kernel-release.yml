@@ -94,7 +94,10 @@ jobs:
 
   build-android:
     name: Android ARM64 AAR and root companion
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: >-
+      (github.event_name == 'pull_request') ||
+      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/update'))
     runs-on: ubuntu-latest
     timeout-minutes: 65
     steps:
@@ -123,10 +126,10 @@ jobs:
           [ -x "$manager" ] || manager=$(command -v sdkmanager)
           "$manager" "ndk;30.0.16248370" "platforms;android-24"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
-      - name: Set matching stable version identity
+      - name: Set matching release version identity
         env:
           KERNEL_COMMIT: ${{ github.sha }}
-          KERNEL_CHANNEL: stable
+          KERNEL_CHANNEL: ${{ github.ref == 'refs/heads/main' && 'stable' || 'dev' }}
         run: python3 tools/prepare-panel-kernel.py panel-source
       - name: Build Android AAR and root executable
         run: |
@@ -183,7 +186,7 @@ jobs:
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (github.ref == 'refs/heads/update' || github.ref == 'refs/heads/main') &&
       needs.build.result == 'success' &&
-      (github.ref == 'refs/heads/update' || needs.build-android.result == 'success')
+      needs.build-android.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -193,8 +196,7 @@ jobs:
           pattern: sing-box-linux-*
           path: release-assets
           merge-multiple: true
-      - name: Download Android stable assets
-        if: github.ref == 'refs/heads/main'
+      - name: Download verified Android assets
         uses: actions/download-artifact@v7
         with:
           name: hiddify-core-android-arm64
@@ -210,11 +212,9 @@ jobs:
           tag=$(tar -xOzf release-assets/sing-box-linux-amd64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
           other=$(tar -xOzf release-assets/sing-box-linux-arm64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
           [ "$tag" = "$other" ] || { echo "Architectures disagree" >&2; exit 1; }
-          if [ "$KERNEL_CHANNEL" = stable ]; then
-            (cd release-assets && sha256sum -c hiddify-core-android-arm64.tar.gz.sha256)
-            android_tag=$(tar -xOzf release-assets/hiddify-core-android-arm64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
-            [ "$tag" = "$android_tag" ] || { echo "Android/Linux releases disagree" >&2; exit 1; }
-          fi
+          (cd release-assets && sha256sum -c hiddify-core-android-arm64.tar.gz.sha256)
+          android_tag=$(tar -xOzf release-assets/hiddify-core-android-arm64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
+          [ "$tag" = "$android_tag" ] || { echo "Android/Linux releases disagree" >&2; exit 1; }
           if [ "$KERNEL_CHANNEL" = dev ]; then
             [[ "$tag" == sawamen-dev-* ]] || exit 1
           else
@@ -225,16 +225,13 @@ jobs:
           Kernel commit: $KERNEL_COMMIT
           Branch: $GITHUB_REF_NAME
           Verified Linux AMD64/ARM64 with libcronet.so, target.json, SHA-256.
-          Stable releases also provide Android ARM64 AAR and root companion.
+          Verified Android ARM64 AAR and root companion are included in both channels.
           NOTES
           if gh release view "$tag" --json isDraft >/dev/null 2>&1; then
             published=$(gh release view "$tag" --json isDraft --jq '.isDraft')
             [ "$published" = false ] || { echo "Draft already exists: $tag" >&2; exit 1; }
             available=$(gh release view "$tag" --json assets --jq '.assets[].name')
-            required=(sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256)
-            if [ "$KERNEL_CHANNEL" = stable ]; then
-              required+=(hiddify-core-android-arm64.tar.gz hiddify-core-android-arm64.tar.gz.sha256)
-            fi
+            required=(sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256 hiddify-core-android-arm64.tar.gz hiddify-core-android-arm64.tar.gz.sha256)
             for name in "${required[@]}"; do
               grep -Fxq "$name" <<< "$available" || { echo "Existing release incomplete: $name" >&2; exit 1; }
             done

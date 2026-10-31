@@ -15,8 +15,9 @@ concurrency:
   cancel-in-progress: ${{ github.ref == 'refs/heads/update' }}
 
 jobs:
-  # Both dev and stable releases use the reviewed gitlink from this core commit.
-  # Never resolve an unpinned upstream main during CI or publication.
+  # Dev builds track the latest main commit of the independently maintained Sing-box fork.
+  # Stable builds retain the reviewed gitlink. Resolve the dev commit once per workflow
+  # so Linux and Android use the exact same Sing-box source revision.
   resolve_singbox:
     name: Resolve Sing-box revision
     runs-on: ubuntu-latest
@@ -34,7 +35,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          commit=$(git ls-tree HEAD -- hiddify-sing-box | awk '$1 == "160000" && $2 == "commit" {print $3}')
+          if [[ "$GITHUB_REF" == "refs/heads/update" ]]; then
+            commit=$(git ls-remote https://github.com/SawaMEN/hiddify-sing-box.git refs/heads/main | awk '$2 == "refs/heads/main" {print $1}')
+          else
+            commit=$(git ls-tree HEAD -- hiddify-sing-box | awk '$1 == "160000" && $2 == "commit" {print $3}')
+          fi
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not resolve Sing-box source revision" >&2; exit 1; }
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "Selected Sing-box revision: $commit"
@@ -93,6 +98,7 @@ jobs:
           compression-level: 0
 
   build-android:
+    needs: resolve_singbox
     name: Android ARM64 AAR and root companion
     if: >-
       (github.event_name == 'pull_request') ||
@@ -105,6 +111,16 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+      - name: Checkout matching Sing-box revision
+        env:
+          SINGBOX_COMMIT: ${{ needs.resolve_singbox.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ "$SINGBOX_COMMIT" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          git -C hiddify-sing-box fetch --no-tags --depth=1 origin "$SINGBOX_COMMIT"
+          git -C hiddify-sing-box checkout --detach --quiet FETCH_HEAD
+          test "$(git -C hiddify-sing-box rev-parse HEAD)" = "$SINGBOX_COMMIT"
+          git -C hiddify-sing-box submodule update --init --recursive --depth=1
       - uses: actions/checkout@v7
         with:
           repository: SawaMEN/3x-ui
@@ -130,13 +146,14 @@ jobs:
         env:
           KERNEL_COMMIT: ${{ github.sha }}
           KERNEL_CHANNEL: ${{ github.ref == 'refs/heads/main' && 'stable' || 'dev' }}
+          SINGBOX_COMMIT: ${{ needs.resolve_singbox.outputs.commit }}
         run: python3 tools/prepare-panel-kernel.py panel-source
       - name: Build Android AAR and root executable
         run: |
           set -euo pipefail
           version=$(python3 -c 'import json; print(json.load(open("panel-source/docs/hiddify-core-target.json"))["target"]["version"])')
-          sing=$(git rev-parse HEAD:hiddify-sing-box | cut -c 1-12)
-          # Resolve transitive module sums for the selected Sing-box gitlink before gomobile.
+          sing=$(git -C hiddify-sing-box rev-parse HEAD | cut -c 1-12)
+          # Resolve transitive module sums for the selected Sing-box revision before gomobile.
           go mod tidy
           make android-arm64 CODE_VERSION="-X github.com/hiddify/hiddify-core/v2/hcommon/constants.Version=$version -X github.com/sagernet/sing-box/constant.Version=sawamen-$sing"
           go run ./cmd/internal/build_root

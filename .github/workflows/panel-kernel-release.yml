@@ -9,10 +9,10 @@ on:
 permissions:
   contents: read
 
-# Run for every commit and serialize publication; no cancellations.
+# Serialize publication; superseded dev runs may be cancelled, but stable releases cannot.
 concurrency:
   group: kernel-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref == 'refs/heads/update' }}
 
 jobs:
   # Both dev and stable releases use the reviewed gitlink from this core commit.

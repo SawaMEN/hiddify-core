@@ -63,6 +63,17 @@ def prepare_runtime_dependencies(panel, module):
     build.write_text(script)
 
 
+def refresh_go_module_source_check(lock, module):
+    """Keep the panel's exact Go toolchain evidence aligned with this checked-out core."""
+    match = re.search(r"(?m)^go [0-9]+\\.[0-9]+(?:\\.[0-9]+)?$", module)
+    if match is None:
+        raise ValueError("Missing Go toolchain declaration in core go.mod")
+    checks = [check for check in lock["source_checks"] if check.get("path") == "go.mod"]
+    if len(checks) != 1 or not re.fullmatch(r"go [0-9]+\\.[0-9]+(?:\\.[0-9]+)?", checks[0].get("contains", "")):
+        raise ValueError("Unexpected panel Go module source check")
+    checks[0]["contains"] = match.group(0)
+
+
 def patch_profile_suffix(version):
     """Only preserve known numbered patch profiles from the panel lock."""
     if not isinstance(version, str):
@@ -93,6 +104,7 @@ def prepare(panel):
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
+    refresh_go_module_source_check(lock, Path("go.mod").read_text())
     target = lock["target"]
     if target["repository"] != "https://github.com/SawaMEN/hiddify-core":
         raise ValueError("Unexpected kernel repository")

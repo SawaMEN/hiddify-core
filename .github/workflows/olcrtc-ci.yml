@@ -9,6 +9,9 @@ on:
       - "v2/config/panel_finalmask.go"
       - "v2/config/olcrtc_test.go"
       - "hiddify-sing-box"
+      - ".gitmodules"
+      - "go.mod"
+      - "go.sum"
       - ".github/workflows/olcrtc-ci.yml"
   push:
     branches: [main]
@@ -18,6 +21,9 @@ on:
       - "v2/config/panel_finalmask.go"
       - "v2/config/olcrtc_test.go"
       - "hiddify-sing-box"
+      - ".gitmodules"
+      - "go.mod"
+      - "go.sum"
       - ".github/workflows/olcrtc-ci.yml"
   workflow_dispatch:
 

@@ -60,7 +60,7 @@ class ModuleSourceCheckTest(unittest.TestCase):
             prepare.refresh_go_module_source_check(
                 {"panel_build": {"toolchain": "invalid"}, "source_checks": [
                     {"path": "go.mod", "contains": "go 1.26.8"}
-                ]}, "module example.com/core\\ngo 1.26.10\\n",
+                ]}, "module example.com/core\ngo 1.26.10\n",
             )
 
 

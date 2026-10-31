@@ -25,5 +25,25 @@ permissions:
   contents: write
 
 jobs:
+  preflight:
+    name: Fast release-source regression checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run release preparation unit tests
+        run: python3 -m unittest discover -s tools -p 'test_prepare_panel_kernel.py' -v
+      - name: Validate pinned Sing-box gitlink
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(git ls-tree HEAD -- hiddify-sing-box | awk '$1 == "160000" && $2 == "commit" {print $3}')
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid pinned Sing-box revision" >&2; exit 1; }
+          echo "Testing reviewed Sing-box gitlink: $sha"
+
   run:
+    needs: preflight
     uses: ./.github/workflows/panel-kernel-release.yml

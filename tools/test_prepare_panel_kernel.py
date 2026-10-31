@@ -27,7 +27,7 @@ class ReleaseProfileTest(unittest.TestCase):
 
 class ModuleSourceCheckTest(unittest.TestCase):
     def test_rebases_stale_toolchain_evidence(self):
-        lock = {"source_checks": [
+        lock = {"panel_build": {"toolchain": "go1.26.9"}, "source_checks": [
             {"path": "go.mod", "contains": "go 1.26.8"},
             {"path": "cmd/cmd_sing_run.go", "contains": "srun"},
         ]}
@@ -35,6 +35,7 @@ class ModuleSourceCheckTest(unittest.TestCase):
             lock, "module example.com/core\n\ngo 1.26.10\n\ngodebug multipathtcp=0\n"
         )
         self.assertEqual("go 1.26.10", lock["source_checks"][0]["contains"])
+        self.assertEqual("go1.26.10", lock["panel_build"]["toolchain"])
         self.assertEqual("srun", lock["source_checks"][1]["contains"])
 
     def test_rejects_malformed_or_missing_go_evidence(self):
@@ -43,14 +44,23 @@ class ModuleSourceCheckTest(unittest.TestCase):
                         {"path": "go.mod", "contains": "go 1.26"}]):
             with self.subTest(checks=checks), self.assertRaises(ValueError):
                 prepare.refresh_go_module_source_check(
-                    {"source_checks": checks}, "module example.com/core\ngo 1.26.10\n"
+                    {"panel_build": {"toolchain": "go1.26.9"}, "source_checks": checks}, "module example.com/core\ngo 1.26.10\n"
                 )
 
     def test_rejects_missing_go_declaration(self):
         with self.assertRaises(ValueError):
             prepare.refresh_go_module_source_check(
-                {"source_checks": [{"path": "go.mod", "contains": "go 1.26.8"}]},
+                {"panel_build": {"toolchain": "go1.26.9"}, "source_checks": [{"path": "go.mod", "contains": "go 1.26.8"}]},
                 "module example.com/core\n",
+            )
+
+
+    def test_rejects_invalid_pinned_toolchain(self):
+        with self.assertRaises(ValueError):
+            prepare.refresh_go_module_source_check(
+                {"panel_build": {"toolchain": "invalid"}, "source_checks": [
+                    {"path": "go.mod", "contains": "go 1.26.8"}
+                ]}, "module example.com/core\\ngo 1.26.10\\n",
             )
 
 

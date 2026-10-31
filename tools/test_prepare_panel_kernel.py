@@ -9,6 +9,22 @@ prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
 
 
+class ReleaseProfileTest(unittest.TestCase):
+    def test_accepts_current_mask_profile(self):
+        self.assertEqual("-mask1", prepare.patch_profile_suffix(
+            "sawamen-b310097c8e7a-338f0c9457a4-mask1"))
+
+    def test_retains_legacy_panel_profile(self):
+        self.assertEqual("-panel9", prepare.patch_profile_suffix(
+            "sawamen-3d4ee155c924-244e333149ec-panel9"))
+
+    def test_rejects_missing_or_arbitrary_profiles(self):
+        for version in ("sawamen-abc-def", "sawamen-abc-def-unknown1", "sawamen-abc-def-panel1-extra", "", None):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                prepare.patch_profile_suffix(version)
+
+
+
 class DependencyOverlayTest(unittest.TestCase):
     def fixture(self, folder, patch):
         panel = folder / "panel"

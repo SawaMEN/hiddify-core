@@ -85,11 +85,11 @@ def refresh_go_module_source_check(lock, module):
 def refresh_panel_audit_toolchain_check(panel, lock):
     """Pin the panel's disposable runtime audit to the checked-out core Go version."""
     toolchain = lock["panel_build"]["toolchain"]
-    if not re.fullmatch(r"go[0-9]+\\.[0-9]+(?:\\.[0-9]+)?", toolchain):
+    if not re.fullmatch(r"go[0-9]+\.[0-9]+(?:\.[0-9]+)?", toolchain):
         raise ValueError("Invalid runtime audit toolchain")
     audit_file = panel / "tools/audit-hiddify-migration.py"
     audit = audit_file.read_text()
-    check = r'require\\(build\\["toolchain"\\] == "go[0-9]+\\.[0-9]+(?:\\.[0-9]+)?", "Runtime must use the pinned security-patched toolchain"\\)'
+    check = r'require\(build\["toolchain"\] == "go[0-9]+\.[0-9]+(?:\.[0-9]+)?", "Runtime must use the pinned security-patched toolchain"\)'
     updated, count = re.subn(
         check,
         'require(build["toolchain"] == "' + toolchain + '", "Runtime must use the pinned security-patched toolchain")',

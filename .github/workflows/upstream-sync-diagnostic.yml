@@ -1,4 +1,4 @@
-name: Merge candidate from upstream hiddify-core
+name: Validate upstream hiddify-core merge
 
 on:
   push:
@@ -7,97 +7,20 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  merge:
+  compile:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Checkout integration branch with history
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          submodules: false
-      - name: Merge upstream and preserve fork-specific conflicting changes
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add upstream https://github.com/hiddify/hiddify-core.git
-          git fetch --no-tags upstream main
-          upstream_sha=$(git rev-parse FETCH_HEAD)
-          test "$upstream_sha" = "b097daadd89d2b62e30c0f4353f55a973118514c"
-          echo "Merging upstream $upstream_sha into $(git rev-parse HEAD)"
-          git merge --no-commit --no-ff -X ours FETCH_HEAD || true
-          mkdir -p docs
-          conflicts=$(git diff --name-only --diff-filter=U)
-          printf '%s\n' "$conflicts" | sed '/^$/d' > /tmp/conflicting-paths.txt
-          echo '=== CONFLICTS TO REVIEW (fork copies retained for conflicting content) ==='
-          cat /tmp/conflicting-paths.txt
-          while IFS= read -r path; do
-            test -n "$path" || continue
-            case "$path" in
-              hiddify-sing-box)
-                # Gitlink must be staged directly: no submodule checkout is present.
-                fork_sing_sha=$(git rev-parse HEAD:hiddify-sing-box)
-                git update-index --add --cacheinfo "160000,$fork_sing_sha,hiddify-sing-box"
-                continue
-                ;;
-              *)
-                if git ls-files -u -- "$path" | grep -q .; then
-                  git checkout --ours -- "$path"
-                fi
-                ;;
-            esac
-            git add -- "$path"
-          done < /tmp/conflicting-paths.txt
-          test -z "$(git diff --name-only --diff-filter=U)"
-          {
-            echo '# Upstream integration review'
-            echo
-            echo 'Upstream: hiddify/hiddify-core main at b097daadd89d2b62e30c0f4353f55a973118514c (v5.4.0).'
-            echo
-            echo 'The merge uses Git -X ours: nonconflicting upstream changes are included; conflicting hunks retain the SawaMEN implementation. These paths require careful manual review before any main-branch merge.'
-            echo
-            echo 'Conflicted paths:'
-            while IFS= read -r path; do
-              test -n "$path" && printf -- '- `%s`\n' "$path"
-            done < /tmp/conflicting-paths.txt
-          } > docs/upstream-integration-review.md
-          git add docs/upstream-integration-review.md
-          # GitHub App tokens cannot push workflow changes; preserve the fork's
-          # CI workflows and review upstream workflow updates separately.
-          while IFS= read -r workflow; do
-            test -n "$workflow" || continue
-            if git cat-file -e "HEAD:$workflow" 2>/dev/null; then
-              git checkout HEAD -- "$workflow"
-            else
-              git rm --cached --ignore-unmatch -- "$workflow"
-              rm -f -- "$workflow"
-            fi
-          done < <(git diff --cached --name-only -- .github/workflows)
-          echo '=== STAGED SUMMARY ==='
-          git diff --cached --stat | tail -50
-          git commit -m "merge(upstream): integrate hiddify-core v5.4.0; preserve fork conflicts"
-          git push origin "HEAD:refs/heads/sync/hiddify-upstream-20261102"
-          echo "MERGED_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-      - name: Initialize all pinned nested modules
-        run: git submodule update --init --recursive --depth=1
+          persist-credentials: false
+          submodules: recursive
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
-      - name: Check Go module compatibility and compile core packages
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          go test -mod=mod -run '^$' ./v2/config/... ./v2/hcore/...
-      - name: Record integration status
-        if: always()
-        shell: bash
-        run: |
-          echo "Upstream merge candidate (not merged into main)" >> "$GITHUB_STEP_SUMMARY"
-          echo "Review conflicts and CI compilation before merging." >> "$GITHUB_STEP_SUMMARY"
+      - name: Compile merged core, configuration and panel packages
+        run: go test -mod=mod -run '^$' ./v2/config/... ./v2/hcore/...

@@ -83,10 +83,10 @@ def refresh_go_module_source_check(lock, module):
 
 
 def patch_profile_suffix(version):
-    """Only preserve known numbered patch profiles from the panel lock."""
+    """Preserve known numbered panel/mask and optional cipher profiles."""
     if not isinstance(version, str):
         raise ValueError("Invalid patch profile")
-    match = re.search(r"(-(?:panel|mask)[0-9]+)$", version)
+    match = re.search(r"(-(?:panel|mask)[0-9]+(?:-ciphers[0-9]+)?)$", version)
     if not match:
         raise ValueError("Cannot determine patch profile (expected -panelN or -maskN)")
     return match.group(1)

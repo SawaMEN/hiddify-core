@@ -14,12 +14,20 @@ class ReleaseProfileTest(unittest.TestCase):
         self.assertEqual("-mask1", prepare.patch_profile_suffix(
             "sawamen-b310097c8e7a-338f0c9457a4-mask1"))
 
+    def test_preserves_combined_mask_and_cipher_profile(self):
+        self.assertEqual("-mask1-ciphers1", prepare.patch_profile_suffix(
+            "sawamen-b310097c8e7a-338f0c9457a4-mask1-ciphers1"))
+
+    def test_preserves_legacy_panel_with_cipher_profile(self):
+        self.assertEqual("-panel9-ciphers2", prepare.patch_profile_suffix(
+            "sawamen-3d4ee155c924-244e333149ec-panel9-ciphers2"))
+
     def test_retains_legacy_panel_profile(self):
         self.assertEqual("-panel9", prepare.patch_profile_suffix(
             "sawamen-3d4ee155c924-244e333149ec-panel9"))
 
     def test_rejects_missing_or_arbitrary_profiles(self):
-        for version in ("sawamen-abc-def", "sawamen-abc-def-unknown1", "sawamen-abc-def-panel1-extra", "", None):
+        for version in ("sawamen-abc-def", "sawamen-abc-def-unknown1", "sawamen-abc-def-panel1-extra", "sawamen-abc-def-mask1-ciphers1-extra", "sawamen-abc-def-mask1-ciphers", "", None):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 prepare.patch_profile_suffix(version)
 

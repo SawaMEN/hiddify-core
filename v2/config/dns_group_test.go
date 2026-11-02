@@ -74,3 +74,26 @@ func TestBuildConfigDNSGroups(t *testing.T) {
 		t.Fatalf("remote tcp member detour = %q, want %q", d, OutboundSelectTag)
 	}
 }
+
+// Remote DoH bootstrap resolves through dns-direct, while dns-direct resolves
+// through dns-local. Keep the dependency order stable for sing-box startup.
+func TestDNSBootstrapResolverIsDeclaredFirst(t *testing.T) {
+    options, err := BuildConfig(libbox.BaseContext(nil), DefaultHiddifyOptions(), &ReadOptions{Content: chainTestProfile})
+    if err != nil { t.Fatal(err) }
+    position := map[string]int{}
+    for i, server := range options.DNS.Servers { position[server.Tag] = i }
+    for _, dependency := range [][2]string{
+        {DNSLocalTag, DNSDirectTag},
+        {DNSDirectTag, DNSRemoteTag},
+        {DNSDirectTag, DNSRemoteTagFallback},
+        {DNSDirectTag, DNSRemoteNoWarpTag},
+        {DNSDirectTag, DNSTricksDirectTag},
+        {DNSDirectTag, DNSMultiRemoteTag},
+    } {
+        a, foundA := position[dependency[0]]
+        b, foundB := position[dependency[1]]
+        if !foundA || !foundB || a >= b {
+            t.Errorf("DNS dependency %q must be available before %q: positions %d and %d", dependency[0], dependency[1], a, b)
+        }
+    }
+}

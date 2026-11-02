@@ -59,7 +59,7 @@ func (s *hiddifyAdminBG) startBridge(in *AdminBgStartRequest) (*AdminBgResponse,
 		in.ServerPort = 12334
 	}
 	option := makeTunnelConfig(in)
-	box, err := hcore.NewService(libbox.BaseContext(nil), option, nil)
+	box, err := hcore.NewService(libbox.BaseContext(nil), option)
 	if err != nil {
 		return &AdminBgResponse{Message: err.Error()}, err
 	}

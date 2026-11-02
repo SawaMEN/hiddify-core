@@ -219,6 +219,17 @@ func (h *HiddifyInstance) GetAllProxiesInfo(hismap map[string]*adapter.URLTestHi
 		if len(group.Items) == 0 {
 			continue
 		}
+		if group.Tag == config.OutboundSelectTag && !onlyGroupitems {
+			showEntryHop(&group, outbounds_converted, func(tag string) string {
+				if out, ok := box.Outbound().Outbound(tag); ok {
+					return C.ProxyDisplayName(out.Type())
+				}
+				if ep, ok := box.Endpoint().Get(tag); ok {
+					return C.ProxyDisplayName(ep.Type())
+				}
+				return TrimTagName(tag)
+			})
+		}
 
 		groups.Items = append(groups.Items, &group)
 
@@ -270,6 +281,27 @@ func chainHop(box *sbox.Box) string {
 		}
 	}
 	return ""
+}
+
+// showEntryHop exposes the extra-security hop as the active entry of the
+// main selector. A named chain hop can have a mode-specific suffix, so match
+// the prefix instead of the old fixed tag.
+func showEntryHop(group *OutboundGroup, infos map[string]*OutboundInfo, protocolName func(string) string) {
+	var entry *OutboundInfo
+	for tag, candidate := range infos {
+		if config.IsChainExtraSecurityTag(tag) && (entry == nil || tag < entry.Tag) {
+			entry = candidate
+		}
+	}
+	if entry == nil {
+		return
+	}
+	entry.TagDisplay = protocolName(entry.Tag)
+	if selected := infos[group.Selected]; selected != nil {
+		entry.TagDisplay += " → " + selected.TagDisplay
+	}
+	group.Selected = entry.Tag
+	group.Items = append([]*OutboundInfo{entry}, group.Items...)
 }
 
 func TrimTagName(tag string) string {

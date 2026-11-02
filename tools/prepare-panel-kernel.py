@@ -52,6 +52,19 @@ def configure_panel_cipher_rebase(panel):
     build.write_text(script.replace(before, after))
 
 
+def configure_panel_transport_rebase(panel):
+    """Preserve the panel transport extensions on the current fork APIs."""
+    source = Path(__file__).with_name("rebase-panel-transport.py")
+    (panel / "tools/rebase-panel-transport.py").write_text(source.read_text())
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    before = 'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/transport-balancer.patch"'
+    after = 'python3 "$task_root/tools/rebase-panel-transport.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/transport-balancer.patch"'
+    if script.count(before) != 1:
+        raise ValueError("Cannot find pinned transport/balancer overlay")
+    build.write_text(script.replace(before, after))
+
+
 def prepare_runtime_dependencies(panel, module):
     """Rebase the panel's additive dependency overlay onto this exact core."""
     patch = panel / "deploy/hiddify/runtime-dependencies.patch"
@@ -167,6 +180,7 @@ def prepare(panel):
     prepare_runtime_dependencies(panel, Path("go.mod").read_text())
     configure_panel_protection_rebase(panel)
     configure_panel_cipher_rebase(panel)
+    configure_panel_transport_rebase(panel)
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())

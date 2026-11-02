@@ -38,15 +38,15 @@ def main():
     # The helper is extracted from the exact pinned panel patch rather than
     # silently inventing a substitute, so drift in that patch is an error.
     patch_data = patch.read_text()
-    marker = "diff --git a/common/tls/xui_explicit_ciphers.go b/common/tls/xui_explicit_ciphers.go\\n"
+    marker = "diff --git a/common/tls/xui_explicit_ciphers.go b/common/tls/xui_explicit_ciphers.go\n"
     if patch_data.count(marker) != 1:
         raise RuntimeError("unexpected cipher helper patch")
     tail = patch_data.split(marker, 1)[1]
     if "diff --git " in tail:
         tail = tail.split("diff --git ", 1)[0]
     lines = [line[1:] for line in tail.splitlines() if line.startswith("+") and not line.startswith("+++")]
-    helper = "\\n".join(lines) + "\\n"
-    if not helper.startswith("package tls\\n") or "func xuiExplicitCipherSuites(" not in helper:
+    helper = "\n".join(lines) + "\n"
+    if not helper.startswith("package tls\n") or "func xuiExplicitCipherSuites(" not in helper:
         raise RuntimeError("unrecognized cipher helper source")
     file = source / "common/tls/xui_explicit_ciphers.go"
     if file.exists():
@@ -57,7 +57,7 @@ def main():
     for path in TARGETS:
         file = source / path
         current = file.read_text()
-        if current.count(BEFORE) != 1 or current.count("logger.Warn(\\\"Explicitly enabled legacy TLS cipher suites") != 1:
+        if current.count(BEFORE) != 1 or current.count("Explicitly enabled legacy TLS cipher suites") != 1:
             raise RuntimeError("upstream TLS cipher implementation changed: " + path)
         file.write_text(current.replace(BEFORE, AFTER))
     subprocess.run(["gofmt", "-w", "common/tls/xui_explicit_ciphers.go", *TARGETS],

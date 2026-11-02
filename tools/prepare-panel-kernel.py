@@ -237,16 +237,6 @@ def prepare(panel):
     sniff_source = sniff_source.replace(old, "NewRuleAction(nil, options)")
     sniff_source = sniff_source.replace('    "context"\n', "")
     sniff_test.write_text(sniff_source)
-    # Temporary diagnostic for the double-close on encryption handshake failures.
-    handshake_test = panel / "deploy/hiddify/vless_handshake_test.go.in"
-    handshake_src = handshake_test.read_text()
-    old_close = "func (c *xuiHandshakeConn) Close() error              { c.closes++; return nil }"
-    if handshake_src.count(old_close) != 1 or handshake_src.count('"net"') != 1:
-        raise ValueError("Handshake fixture changed")
-    handshake_src = handshake_src.replace('"net"', '"net"\n    "runtime/debug"')
-    handshake_src = handshake_src.replace(old_close,
-        'func (c *xuiHandshakeConn) Close() error { c.closes++; println("XUI_CLOSE_TRACE", c.closes, string(debug.Stack())); return nil }')
-    handshake_test.write_text(handshake_src)
     # mKCP is built into the newer fork behind its native feature tag.
     # Keep the panel's legacy interoperability tests and runtime in sync.
     tags = lock["panel_build"]["tags"]

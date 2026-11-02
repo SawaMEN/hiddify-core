@@ -1,0 +1,44 @@
+name: Review upstream hiddify-core merge
+
+on:
+  push:
+    branches:
+      - sync/hiddify-upstream-20261102
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+      - name: Inspect merge conflicts without modifying remote branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/hiddify/hiddify-core.git
+          git fetch --no-tags upstream main
+          echo "LOCAL=$(git rev-parse HEAD)"
+          echo "UPSTREAM=$(git rev-parse FETCH_HEAD)"
+          base=$(git merge-base HEAD FETCH_HEAD || true)
+          echo "MERGE_BASE=$base"
+          git config user.name "upstream-merge-diagnostic"
+          git config user.email "merge-diagnostic@users.noreply.github.com"
+          git merge --no-commit --no-ff --no-edit FETCH_HEAD > /tmp/merge-output 2>&1 || true
+          cat /tmp/merge-output
+          echo '=== UNMERGED PATHS ==='
+          git diff --name-only --diff-filter=U
+          echo '=== UNMERGED STAGES ==='
+          git ls-files -u | awk '{print $4}' | sort -u
+          echo '=== MERGE DIFF SUMMARY ==='
+          git diff --stat || true
+          echo '=== STATUS ==='
+          git status --short | head -120
+          git merge --abort || true

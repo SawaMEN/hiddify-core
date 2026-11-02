@@ -215,6 +215,22 @@ def prepare(panel):
     refresh_go_module_source_check(lock, Path("go.mod").read_text())
     refresh_awg_peer_source_check(lock)
     refresh_panel_audit_toolchain_check(panel, lock)
+    # mKCP is built into the newer fork behind its native feature tag.
+    # Keep the panel's legacy interoperability tests and runtime in sync.
+    tags = lock["panel_build"]["tags"]
+    if "with_kcp" not in tags:
+        tags.append("with_kcp")
+    runtime = panel / "internal/hiddify/process.go"
+    text = runtime.read_text()
+    marker = "var requiredBuildTags = []string{"
+    if text.count(marker) != 1:
+        raise ValueError("Cannot find panel runtime build tags")
+    line_start = text.index(marker)
+    line_end = text.index("}", line_start)
+    tag_line = text[line_start:line_end]
+    if '"with_kcp"' not in tag_line:
+        text = text[:line_end] + ', "with_kcp"' + text[line_end:]
+        runtime.write_text(text)
     target = lock["target"]
     if target["repository"] != "https://github.com/SawaMEN/hiddify-core":
         raise ValueError("Unexpected kernel repository")

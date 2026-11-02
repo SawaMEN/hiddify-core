@@ -30,7 +30,7 @@ func (s *CoreService) CoreInfoListener(req *hcommon.Empty, stream grpc.ServerStr
 	coreSub := static.coreInfoObserver.Subscribe(1)
 	defer static.coreInfoObserver.Unsubscribe(coreSub)
 	if err := stream.Send(&CoreInfoResponse{
-		CoreState:   coreState(),
+		CoreState:   currentCoreState(),
 		MessageType: MessageType_EMPTY,
 		Message:     "",
 	}); err != nil {
@@ -47,7 +47,7 @@ func (s *CoreService) CoreInfoListener(req *hcommon.Empty, stream grpc.ServerStr
 			// case <-time.After(500 * time.Millisecond):
 			// 	// 	info := SetCoreStatus(CoreStates_STOPPED, MessageType_EMPTY, "")
 			// 	if err := stream.Send(&CoreInfoResponse{
-			// 		CoreState:   coreState(),
+			// 		CoreState:   currentCoreState(),
 			// 		MessageType: MessageType_EMPTY,
 			// 		Message:     "",
 			// 	})

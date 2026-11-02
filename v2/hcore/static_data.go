@@ -59,11 +59,6 @@ func settingsSnapshot() *config.HiddifyOptions {
 	next := *static.HiddifyOptions
 	return &next
 }
-func coreState() CoreStates {
-	static.stateLock.RLock()
-	defer static.stateLock.RUnlock()
-	return static.CoreState
-}
 func setStartedService(ss *daemon.StartedService) {
 	static.stateLock.Lock()
 	static.StartedService = ss

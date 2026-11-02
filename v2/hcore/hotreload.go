@@ -37,20 +37,20 @@ func HotReload(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error)
 	})
 	static.lock.Lock()
 	defer static.lock.Unlock()
-	switch coreState() {
+	switch currentCoreState() {
 	case CoreStates_STOPPED:
 		return startServiceLocked(ctx, in, static.startEpoch.Load())
 	case CoreStates_STARTED:
 		SetCoreStatus(CoreStates_HOT_RELOADING, MessageType_EMPTY, "")
 		// back to STARTED whatever happens: the core keeps running unchanged on a failure
 		defer func() {
-			if coreState() == CoreStates_HOT_RELOADING {
+			if currentCoreState() == CoreStates_HOT_RELOADING {
 				SetCoreStatus(CoreStates_STARTED, MessageType_EMPTY, "")
 			}
 		}()
 		return hotReloadService(ctx, in)
 	default:
-		return hotReloadError(MessageType_HOT_RELOAD_FAILED, fmt.Errorf("core is %s", coreState()))
+		return hotReloadError(MessageType_HOT_RELOAD_FAILED, fmt.Errorf("core is %s", currentCoreState()))
 	}
 }
 
@@ -108,7 +108,7 @@ func hotReloadService(ctx context.Context, in *StartRequest) (*CoreInfoResponse,
 // hotReloadError reports a failed hot reload; the core keeps running unchanged.
 func hotReloadError(messageType MessageType, err error) (*CoreInfoResponse, error) {
 	Log(LogLevel_ERROR, LogType_CORE, "hot reload: ", err.Error())
-	state := coreState()
+	state := currentCoreState()
 	if state == CoreStates_HOT_RELOADING {
 		state = static.connectedState()
 	}

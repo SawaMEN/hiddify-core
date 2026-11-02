@@ -306,7 +306,8 @@ func (h *HiddifyInstance) AllProxiesInfoStream(stream grpc.ServerStreamingServer
 	}
 	defer monitor.UnsubscribeGroup("", urltestch)
 
-	// Debounce URL-test / traffic bursts; selection events (GroupEvent.Priority) flush at once.
+	// Debounce monitoring bursts. GroupEvent has no priority field in this fork;
+	// preserve ordering and do not rely on a removed upstream event API.
 	const debounceWindow = 1000 * time.Millisecond
 	var (
 		timer   *time.Timer
@@ -337,31 +338,20 @@ func (h *HiddifyInstance) AllProxiesInfoStream(stream grpc.ServerStreamingServer
 			return nil
 		case <-ctx.Done():
 			return nil
-		case ev, ok := <-urltestch:
+		case _, ok := <-urltestch:
 			if !ok {
 				return nil
 			}
-			priority := ev.Priority
+			// Consume pending events before arming the debounce timer.
 			for drain := true; drain; {
 				select {
-				case ev2, ok2 := <-urltestch:
-					if !ok2 {
+				case _, ok := <-urltestch:
+					if !ok {
 						return nil
-					}
-					if ev2.Priority {
-						priority = true
 					}
 				default:
 					drain = false
 				}
-			}
-			if priority {
-				stopTimer()
-				if err := send(); err != nil {
-					Log(LogLevel_ERROR, LogType_CORE, "failed to send outbounds info: ", err)
-					return err
-				}
-				continue
 			}
 			if timer == nil {
 				timer = time.NewTimer(debounceWindow)

@@ -11,43 +11,37 @@ import (
 // Restart queues a restart of the core and answers at once with STOPPING; the outcome
 // (STOPPING, STOPPED, STARTING, STARTED) is reported through CoreInfoListener.
 func (s *CoreService) Restart(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
-	return Restart(ctx, in)
+	queue.Lock()
+	defer queue.Unlock()
+	queueRestartLocked(static.BaseContext, in)
+	return &CoreInfoResponse{CoreState: CoreStates_STOPPING, MessageType: MessageType_EMPTY}, nil
 }
 
-func Restart(ctx context.Context, in *StartRequest) (coreResponse *CoreInfoResponse, err error) {
-	defer config.DeferPanicToError("startmobile", func(recovered_err error) {
-		coreResponse, err = errorWrapper(MessageType_UNEXPECTED_ERROR, recovered_err)
-	})
-	log.Debug("[Service] Restarting")
-	// Reserve one generation and keep stop/delay/start in one lifecycle lock.
-	// A user Stop can still invalidate and cancel this operation without the lock.
-	epoch := cancelStart()
-	static.lock.Lock()
-	defer static.lock.Unlock()
-	restartCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	static.startLock.Lock()
-	if epoch != static.startEpoch.Load() {
-		static.startLock.Unlock()
-		return nil, context.Canceled
-	}
-	static.startCancel = cancel
-	static.startLock.Unlock()
-	defer func() { static.startLock.Lock(); static.startCancel = nil; static.startLock.Unlock() }()
-	if err := restartCtx.Err(); err != nil {
-		return nil, err
-	}
-	resp, err := stopLocked()
-	if err != nil {
-		return resp, err
-	}
+// Restart stops then starts the core after the operations queued before it, and returns the
+// outcome.
+func Restart(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
+	queue.Lock()
+	result := queueRestartLocked(ctx, in)
+	queue.Unlock()
+	return wait(result)
+}
 
-	if C.IsAndroid && settingsSnapshot().EnableTun {
-		select {
-		case <-restartCtx.Done():
-			return SetCoreStatus(CoreStates_STOPPED, MessageType_INSTANCE_NOT_STARTED, "restart cancelled"), restartCtx.Err()
-		case <-time.After(time.Second):
+// queueRestartLocked queues a restart: it cancels the starts queued before it, and a stop
+// called after it cancels its start; queue must be locked.
+func queueRestartLocked(ctx context.Context, in *StartRequest) <-chan operationResult {
+	signalStopLocked()
+	ctx = withStopSignalLocked(ctx)
+	return enqueueLocked(operationStart, "restart", func() (*CoreInfoResponse, error) {
+		log.Debug("[Service] Restarting")
+		if response, err := stopLocked(); err != nil {
+			return response, err
 		}
-	}
-	return startServiceLocked(restartCtx, in, epoch)
+		if C.IsAndroid && static.HiddifyOptions.EnableTun {
+			sleepContext(ctx, time.Second)
+		}
+		if err := contextErr(ctx); err != nil {
+			return cancelledStart(err)
+		}
+		return startServiceLocked(ctx, in)
+	})
 }

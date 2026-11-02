@@ -170,18 +170,15 @@ func parseSingboxContent(ctx context.Context, structured any, configOpt *Hiddify
 			}
 		}
 	} else if jsonArray, ok := structured.([]interface{}); ok {
-		if len(jsonArray) == 0 {
-			return nil, fmt.Errorf("[SingboxParser] no outbounds found")
+		if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
+			return nil, fmt.Errorf("[SingboxParser] a configuration array cannot be used in full-config mode")
 		}
-		outbounds := make([]interface{}, 0, len(jsonArray))
-		for i, item := range jsonArray {
-			itemObj, ok := item.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("[SingboxParser] outbound at index %d is %T, expected a json object", i, item)
-			}
-			outbounds = append(outbounds, itemObj)
+		// Distinguish panel subscription arrays of full config objects from
+		// simple outbound arrays. Each full config gets namespaced tags so
+		// that overlapping proxy names and local detour references survive.
+		if err := mergePanelJSONArray(jsonObj, jsonArray); err != nil {
+			return nil, err
 		}
-		jsonObj["outbounds"] = outbounds
 	} else {
 		return nil, fmt.Errorf("[SingboxParser] incorrect json format: expected a json object or an array of outbound objects, got %T", structured)
 	}

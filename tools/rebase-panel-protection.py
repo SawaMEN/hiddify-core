@@ -8,7 +8,7 @@ from pathlib import Path
 REVIEWED = {
     "common/tls/reality_client.go": 3,
     "option/tls.go": 1,
-    "protocol/vless/outbound.go": 2,
+    "protocol/vless/outbound.go": 4,
 }
 MARKERS = re.compile(r"(?m)^<<<<<<< ours\n(.*?)^=======\n(.*?)^>>>>>>> theirs\n", re.S)
 
@@ -40,7 +40,10 @@ def resolve(path, ours, theirs, index):
         if index == 0:
             check("h.dialServer(ctx)" in theirs and "h.dialer.DialContext" in ours, "unexpected preconnect dial branch")
             return theirs
-        check("context.AfterFunc(ctx" in ours and "h.encryption.Handshake" in theirs, "unexpected encrypted handshake branch")
+        if "context.AfterFunc(ctx" in ours and "h.encryption.Handshake" in theirs:
+            return ours
+        check("tls.ClientHandshake" in ours and "tls.ClientHandshake" in theirs and
+              "rawConn" in ours, "unexpected TLS handshake overlap")
         return ours
     raise RuntimeError("unknown conflict " + path)
 

@@ -215,6 +215,16 @@ def prepare(panel):
     refresh_go_module_source_check(lock, Path("go.mod").read_text())
     refresh_awg_peer_source_check(lock)
     refresh_panel_audit_toolchain_check(panel, lock)
+    # The fork migrated NewRuleAction(ctx, logger, action) to
+    # NewRuleAction(logger, action); preserve the panel sniff regression.
+    sniff_test = panel / "deploy/hiddify/sniff_override_test.go.in"
+    sniff_source = sniff_test.read_text()
+    old = "NewRuleAction(context.Background(), nil, options)"
+    if sniff_source.count(old) != 1 or '"context"' not in sniff_source:
+        raise ValueError("Unexpected panel sniff test call signature")
+    sniff_source = sniff_source.replace(old, "NewRuleAction(nil, options)")
+    sniff_source = sniff_source.replace('    "context"\\n', "")
+    sniff_test.write_text(sniff_source)
     # mKCP is built into the newer fork behind its native feature tag.
     # Keep the panel's legacy interoperability tests and runtime in sync.
     tags = lock["panel_build"]["tags"]

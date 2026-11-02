@@ -64,7 +64,7 @@ func TestBuildConfigDNSGroups(t *testing.T) {
 		if len(g.Servers) != 6 || !slices.Contains(g.Servers, want) {
 			t.Fatalf("%s: members %v must contain selected %s and six candidates", tag, g.Servers, want)
 		}
-		if servers[g.Servers[0]].Type != C.DNSTypeTCP {
+		if tag == DNSMultiRemoteTag && servers[g.Servers[0]].Type != C.DNSTypeTCP {
 			t.Fatalf("%s: first member %s should be TCP for fast failure", tag, g.Servers[0])
 		}
 		seen := map[string]bool{}

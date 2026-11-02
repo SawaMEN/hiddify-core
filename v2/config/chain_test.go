@@ -71,8 +71,8 @@ func TestChainExtraSecurityWarp(t *testing.T) {
 	if hop == nil {
 		t.Fatal("extra security WARP endpoint not created")
 	}
-	if hop.Detour != OutboundSelectTag || hop.Profile.Detour != OutboundSelectTag {
-		t.Fatalf("extra security must dial through the main selector, got detour %q / profile detour %q", hop.Detour, hop.Profile.Detour)
+	if hop.Detour != OutboundSelectTag || hop.Profile.Detour != "" {
+		t.Fatalf("extra security tunnel must use the main selector but enrollment must stay direct: detour %q / profile detour %q", hop.Detour, hop.Profile.Detour)
 	}
 	if hop.Profile.License != "LICENSE-1" {
 		t.Fatalf("license key not applied: %q", hop.Profile.License)

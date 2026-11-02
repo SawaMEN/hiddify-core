@@ -61,7 +61,7 @@ def main():
         target = directory / path
         source = target.read_text()
         overlaps = list(MARKERS.finditer(source))
-        check(len(overlaps) == expected_count, "Unexpected conflict count: " + path)
+        check(len(overlaps) == expected_count, "Unexpected conflict count: " + path + " got " + str(len(overlaps)) + " fragments " + repr([(m.group(1)[:95], m.group(2)[:95]) for m in overlaps]))
         counter = [0]
         def replacement(match):
             index = counter[0]

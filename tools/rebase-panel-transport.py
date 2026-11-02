@@ -78,7 +78,9 @@ def main():
     # Preserve the newer, tested with_kcp implementation rather than introducing
     # circular imports or overwriting the fork's improved session engine.
     required = ("KCPOptions         V2RayKCPOptions", "V2RayTransportTypeKCPAlias",
-                "type V2RayKCPOptions struct", "type V2RayXHTTPDownloadOptions struct")
+                "type V2RayXHTTPDownloadOptions struct")
+    if "type V2RayKCPOptions struct" not in (root / "option/h_v2ray_kcp.go").read_text():
+        raise RuntimeError("native mKCP options are missing")
     if any(value not in source for value in required):
         raise RuntimeError("new fork mKCP/XHTTP API moved")
     replace_once(opt,

@@ -53,6 +53,15 @@ def main():
         raise SystemExit("usage: rebase-panel-protection.py SINGBOX_CHECKOUT PATCH")
     directory, patch = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
     check(directory.is_dir() and patch.is_file(), "missing Sing-box or overlay")
+    # The panel builds a shallow submodule checkout. A 3-way Git overlay requires
+    # patch index blobs from the Sing-box history to resolve the existing changes.
+    shallow = subprocess.check_output(
+        ["git", "rev-parse", "--is-shallow-repository"], cwd=directory, text=True
+    ).strip()
+    if shallow == "true":
+        subprocess.run(["git", "fetch", "--unshallow", "--no-tags", "origin"],
+                       cwd=directory, check=True)
+
     completed = subprocess.run(["git", "apply", "--3way", "--index", str(patch)],
                                cwd=directory, capture_output=True, text=True)
     unmerged = subprocess.check_output(

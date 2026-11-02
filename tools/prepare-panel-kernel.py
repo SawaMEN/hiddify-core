@@ -82,6 +82,24 @@ def refresh_go_module_source_check(lock, module):
     panel_build["toolchain"] = "go" + match.group(0)[3:]
 
 
+def refresh_panel_audit_toolchain_check(panel, lock):
+    """Pin the panel's disposable runtime audit to the checked-out core Go version."""
+    toolchain = lock["panel_build"]["toolchain"]
+    if not re.fullmatch(r"go[0-9]+\\.[0-9]+(?:\\.[0-9]+)?", toolchain):
+        raise ValueError("Invalid runtime audit toolchain")
+    audit_file = panel / "tools/audit-hiddify-migration.py"
+    audit = audit_file.read_text()
+    check = r'require\\(build\\["toolchain"\\] == "go[0-9]+\\.[0-9]+(?:\\.[0-9]+)?", "Runtime must use the pinned security-patched toolchain"\\)'
+    updated, count = re.subn(
+        check,
+        'require(build["toolchain"] == "' + toolchain + '", "Runtime must use the pinned security-patched toolchain")',
+        audit,
+    )
+    if count != 1:
+        raise ValueError("Cannot update panel runtime audit toolchain check")
+    audit_file.write_text(updated)
+
+
 def patch_profile_suffix(version):
     """Preserve known numbered panel/mask and optional cipher profiles."""
     if not isinstance(version, str):
@@ -113,6 +131,7 @@ def prepare(panel):
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
     refresh_go_module_source_check(lock, Path("go.mod").read_text())
+    refresh_panel_audit_toolchain_check(panel, lock)
     target = lock["target"]
     if target["repository"] != "https://github.com/SawaMEN/hiddify-core":
         raise ValueError("Unexpected kernel repository")

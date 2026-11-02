@@ -24,3 +24,29 @@ jobs:
           cache: false
       - name: Compile merged core, configuration and panel packages
         run: go test -mod=mod -run '^$' ./v2/config/... ./v2/hcore/...
+
+  panel-compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Fetch overlay and fork source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/SawaMEN/3x-ui.git /tmp/panel
+          git submodule update --init hiddify-sing-box
+          cd hiddify-sing-box
+          echo '=== INDEX OBJECTS IN PATCH ==='
+          git cat-file -e '24490d3^{blob}' && echo 'base blob is available' || echo 'base blob unavailable'
+          echo '=== STRAIGHT APPLY ==='
+          git apply --check /tmp/panel/deploy/hiddify/protection-options.patch || true
+          echo '=== THREE WAY APPLY ==='
+          git apply --3way --index /tmp/panel/deploy/hiddify/protection-options.patch || true
+          echo '=== STAGED/UNMERGED ==='
+          git status --short | head -80
+          git diff --name-only --diff-filter=U || true
+          git diff --cached --stat || true

@@ -67,6 +67,17 @@ jobs:
             done < /tmp/conflicting-paths.txt
           } > docs/upstream-integration-review.md
           git add docs/upstream-integration-review.md
+          # GitHub App tokens cannot push workflow changes; preserve the fork's
+          # CI workflows and review upstream workflow updates separately.
+          while IFS= read -r workflow; do
+            test -n "$workflow" || continue
+            if git cat-file -e "HEAD:$workflow" 2>/dev/null; then
+              git checkout HEAD -- "$workflow"
+            else
+              git rm --cached --ignore-unmatch -- "$workflow"
+              rm -f -- "$workflow"
+            fi
+          done < <(git diff --cached --name-only -- .github/workflows)
           echo '=== STAGED SUMMARY ==='
           git diff --cached --stat | tail -50
           git commit -m "merge(upstream): integrate hiddify-core v5.4.0; preserve fork conflicts"

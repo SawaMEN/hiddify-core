@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"time"
 
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
@@ -173,6 +174,56 @@ type ChainPsiphonOptions struct {
 
 type ChainProfileOptions struct {
 	ID *string `json:"id,omitempty"`
+}
+
+// ChainModeDisplayName is the user-facing WARP/Psiphon label for a chain mode.
+func ChainModeDisplayName(mode string) string {
+	switch mode {
+	case ChainModeWarp:
+		return "WARP · WireGuard"
+	case ChainModeWarpMasque:
+		return "WARP · MASQUE"
+	case ChainModeWarpAwg:
+		return "WARP · AmneziaWG"
+	case ChainModeWarpAuto:
+		return "WARP · Auto"
+	case ChainModePsiphon:
+		return "Psiphon"
+	case ChainModeProfile:
+		return "Profile"
+	case ChainModeSelectable:
+		return "Selectable"
+	case chainModeLowest:
+		return "Lowest"
+	default:
+		return mode
+	}
+}
+
+// ChainHopTag names the hop with its mode, e.g. "🔒 Extra Security · WARP · WireGuard §hide§".
+func ChainHopTag(status, mode string) string {
+	name := ChainModeDisplayName(mode)
+	switch status {
+	case ChainStatusExtraSecurity:
+		return ChainExtraSecurityPrefix + " · " + name + " §hide§"
+	case ChainStatusUnblocker:
+		return ChainUnblockerPrefix + " · " + name + " §hide§"
+	default:
+		return name + " §hide§"
+	}
+}
+
+// ChainTagDisplay is the tag without §hide§ (for UI lists).
+func ChainTagDisplay(tag string) string {
+	return strings.TrimSpace(strings.Split(tag, "§")[0])
+}
+
+func IsChainExtraSecurityTag(tag string) bool {
+	return strings.HasPrefix(ChainTagDisplay(tag), ChainExtraSecurityPrefix)
+}
+
+func IsChainUnblockerTag(tag string) bool {
+	return strings.HasPrefix(ChainTagDisplay(tag), ChainUnblockerPrefix)
 }
 
 // Android sends both its editor state and a resolved runtime snapshot. Consume

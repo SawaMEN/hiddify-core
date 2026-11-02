@@ -784,10 +784,10 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 
 		DefaultOptions: option.DefaultRule{
 			RawDefaultRule: option.RawDefaultRule{
-				IPCIDR: prefixables([]string{
+				IPCIDR: []string{
 					"10.10.34.0/24",
 					"2001:4188:2:600:10:10:34:0/120",
-				}),
+				},
 			},
 			RuleAction: option.RuleAction{
 				Action: C.RuleActionTypeRoute,

@@ -35,36 +35,33 @@ func Stop() (*CoreInfoResponse, error) {
 	return wait(result)
 }
 
-	// if static.CoreState != CoreStates_STARTED {
-	// 	return errorWrapper(MessageType_INSTANCE_NOT_STARTED, fmt.Errorf("instance not started"))
-	// }
-	// if static.Box == nil {
-	// 	return errorWrapper(MessageType_INSTANCE_NOT_FOUND, fmt.Errorf("instance not found"))
-	// }
-	cancelStart()
-	static.lock.Lock()
-	defer static.lock.Unlock()
-	return stopLocked()
+// queueStopLocked queues a stop; queue must be locked.
+func queueStopLocked() <-chan operationResult {
+	signalStopLocked()
+	return enqueueLocked(operationStop, "stop", stopLocked)
 }
 
-// Caller holds static.lock. Cancellation must happen before acquiring it.
-func stopLocked() (coreResponse *CoreInfoResponse, err error) {
-	SetCoreStatus(CoreStates_STOPPING, MessageType_EMPTY, "")
-	static.stateLock.RLock()
+// stopLocked stops the core; static.lock must be held.
+func stopLocked() (*CoreInfoResponse, error) {
+	watch := newStopwatch("stop")
+	stopConnectivityWatcher()
+	watch.step("ending the connectivity watcher")
+	// already reported when the stop was called, unless a restart runs it
+	setCoreStatusIf(stoppable, CoreStates_STOPPING, MessageType_EMPTY, "")
 	ss := static.StartedService
-	static.stateLock.RUnlock()
 	if ss == nil {
 		return SetCoreStatus(CoreStates_STOPPED, MessageType_ALREADY_STOPPED, ""), nil
 	}
 
-	defer ss.Close()
-	if err := ss.CloseService(); err != nil {
-		setStartedService(nil)
+	err := closeService(ss)
+	watch.step("closing the service")
+	if err != nil {
+		static.StartedService = nil
 		dumpGoroutinesToFile(fmt.Sprint(sWorkingPath, "/data/goroutine-stop.log"))
 		return errorWrapper(MessageType_UNEXPECTED_ERROR, err)
 	}
-	// err = common.Close(static.StartedService)
-	setStartedService(nil)
+	static.StartedService = nil
+	watch.done("core is stopped")
 
 	return SetCoreStatus(CoreStates_STOPPED, MessageType_EMPTY, ""), nil
 }

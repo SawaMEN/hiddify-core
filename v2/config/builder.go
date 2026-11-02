@@ -531,6 +531,10 @@ func shouldEnableIPv6() bool {
 	return isIPv6Supported()
 }
 
+func ipv6EnabledFor(mode option.DomainStrategy, hostSupportsIPv6 bool) bool {
+	return hostSupportsIPv6 && mode != option.DomainStrategy(C.DomainStrategyIPv4Only)
+}
+
 func setInbound(options *option.Options, hopt *HiddifyOptions) {
 	if hopt.WifiVPNSharing && !hopt.PrivacyRoot {
 		hopt.DisableLocalProxy = false
@@ -550,7 +554,7 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
 	// } else {
 	// 	inboundDomainStrategy = opt.IPv6Mode
 	// }
-	ipv6Enable := shouldEnableIPv6()
+	ipv6Enable := ipv6EnabledFor(hopt.IPv6Mode, shouldEnableIPv6())
 	if hopt.EnableTun {
 
 		opts := option.TunInboundOptions{
@@ -595,12 +599,9 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
 		// default:
 
 		// }
-		opts.Address = []netip.Prefix{
-			netip.MustParsePrefix("172.19.0.1/28"),
-			// Always on the TUN when auto-routing. Without it, sing-tun installs no ::/0
-			// and IPv6 bypasses the VPN (NE builds guard this in Swift; admin_bgservice /
-			// desktop TUN must do it here). ipv6Mode only affects DNS strategy below.
-			netip.MustParsePrefix("fdfe:dcba:9876::1/126"),
+		opts.Address = []netip.Prefix{netip.MustParsePrefix("172.19.0.1/28")}
+		if ipv6Enable {
+			opts.Address = append(opts.Address, netip.MustParsePrefix("fdfe:dcba:9876::1/126"))
 		}
 
 		options.Inbounds = append(options.Inbounds, tunInbound)

@@ -159,6 +159,20 @@ def main():
                  '\t\ts.outbounds[tag] = detour\n'
                  '\t}\n'
                  '\tfor i, tag := range s.tags {\n\t\tdetour, loaded := s.outbound.Outbound(tag)\n')
+    # Sing-box now uses staged Start rather than an independent PostStart.
+    # The original adapter's PostStart must actually start its health probes.
+    replace_once(sel,
+                 'func (s *Selector) Start(stage adapter.StartStage, scope *adapter.Scope) error {\n'
+                 '\tif stage != adapter.StartStateStart {\n'
+                 '\t\treturn nil\n'
+                 '\t}\n',
+                 'func (s *Selector) Start(stage adapter.StartStage, scope *adapter.Scope) error {\n'
+                 '\tif stage == adapter.StartStatePostStart {\n'
+                 '\t\tif s.balance != nil { s.balance.postStart(s.outbounds) }\n'
+                 '\t\treturn nil\n'
+                 '\t}\n'
+                 '\tif stage != adapter.StartStateStart { return nil }\n'
+                 '\tif s.balance != nil && scope != nil { scope.Add(s.balance.Close) }\n')
     replace_once(sel,
                  'func (s *Selector) References() []string {\n',
                  'func (s *Selector) References() []string {\n'
@@ -191,10 +205,6 @@ func (s *Selector) pickOutbound() (adapter.Outbound, error) {
     if target == nil { return nil, E.New("balancer selected unknown outbound ", tag) }
     s.selected.Store(target)
     return target, nil
-}
-func (s *Selector) PostStart() error {
-    if s.balance != nil { s.balance.postStart(s.outbounds) }
-    return nil
 }
 func (s *Selector) Close() error {
     if s.balance != nil { return s.balance.Close() }

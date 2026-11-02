@@ -40,7 +40,10 @@ jobs:
             test -n "$path" || continue
             case "$path" in
               hiddify-sing-box)
-                git checkout --ours -- "$path"
+                # Gitlink must be staged directly: no submodule checkout is present.
+                fork_sing_sha=$(git rev-parse HEAD:hiddify-sing-box)
+                git update-index --add --cacheinfo "160000,$fork_sing_sha,hiddify-sing-box"
+                continue
                 ;;
               *)
                 if git ls-files -u -- "$path" | grep -q .; then
@@ -63,7 +66,7 @@ jobs:
               test -n "$path" && printf -- '- `%s`\n' "$path"
             done < /tmp/conflicting-paths.txt
           } > docs/upstream-integration-review.md
-          git add -A
+          git add docs/upstream-integration-review.md
           echo '=== STAGED SUMMARY ==='
           git diff --cached --stat | tail -50
           git commit -m "merge(upstream): integrate hiddify-core v5.4.0; preserve fork conflicts"

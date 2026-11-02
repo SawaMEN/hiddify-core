@@ -97,7 +97,7 @@ func (h *HiddifyInstance) GetProxyInfo(url_test_history *adapter.URLTestHistory,
 
 	out.Tag = detour.Tag()
 	out.Type = adapter.DisplayType(detour) // the type, and "Connecting..." while not ready
-	out.Status = Status(detour.Status())
+	out.Status = Status(adapter.OutboundStatus(detour))
 	if group, isGroup := detour.(adapter.OutboundGroup); isGroup {
 		out.IsGroup = true
 		gnow := groupNow(group)

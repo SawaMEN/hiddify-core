@@ -236,7 +236,7 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 	}
 	watch.step("preparing the platform and the delay")
 	libbox.SetMemoryLimit(C.IsIos || !in.DisableMemoryLimit)
-	instance, err := NewService(serviceContext(ctx), *options, stopSignal(ctx))
+	instance, err := NewServiceWithStartupContext(serviceContext(ctx), ctx, *options)
 	watch.step("starting the service")
 	if err != nil {
 		watch.done("failed: " + err.Error())

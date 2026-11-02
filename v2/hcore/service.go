@@ -42,7 +42,7 @@ func NewServiceWithStartupContext(ctx, startupCtx context.Context, options optio
 	}
 	watch.step("checking the config")
 	instance := daemon.NewStartedService(bopts)
-	if stop != nil {
+	if stop := stopSignal(startupCtx); stop != nil {
 		started := make(chan struct{})
 		defer close(started)
 		go func() {

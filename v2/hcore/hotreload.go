@@ -35,20 +35,33 @@ func HotReload(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error)
 		})
 		return hotReloadLocked(ctx, in)
 	})
-	static.lock.Lock()
-	defer static.lock.Unlock()
+	queue.Unlock()
+	return wait(result)
+}
+
+// hotReloadLocked is HotReload; static.lock must be held.
+func hotReloadLocked(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
+	if err := contextErr(ctx); err != nil {
+		return hotReloadError(MessageType_HOT_RELOAD_FAILED, fmt.Errorf("hot reload cancelled: %w", err))
+	}
 	switch currentCoreState() {
 	case CoreStates_STOPPED:
-		return startServiceLocked(ctx, in, static.startEpoch.Load())
-	case CoreStates_STARTED:
+		return startServiceLocked(ctx, in)
+	case CoreStates_WAITING, CoreStates_STARTED, CoreStates_NO_AVAILABLE_PROXIES, CoreStates_HOT_RELOADING:
+		// HOT_RELOADING may already be set when the call was accepted (shown at once)
 		SetCoreStatus(CoreStates_HOT_RELOADING, MessageType_EMPTY, "")
-		// back to STARTED whatever happens: the core keeps running unchanged on a failure
-		defer func() {
-			if currentCoreState() == CoreStates_HOT_RELOADING {
-				SetCoreStatus(CoreStates_STARTED, MessageType_EMPTY, "")
-			}
-		}()
-		return hotReloadService(ctx, in)
+		response, err := hotReloadService(ctx, in)
+		if err != nil {
+			// config unchanged: restore whatever the current pings say
+			setCoreStatusIf([]CoreStates{CoreStates_HOT_RELOADING}, static.connectedState(), MessageType_EMPTY, "")
+			return response, err
+		}
+		// same as start: WAITING until the lowest-group pings decide STARTED / NO_AVAILABLE_PROXIES
+		if response, ok := setCoreStatusIf([]CoreStates{CoreStates_HOT_RELOADING}, CoreStates_WAITING, MessageType_EMPTY, ""); ok {
+			startConnectivityWatcher()
+			return response, nil
+		}
+		return &CoreInfoResponse{CoreState: currentCoreState(), MessageType: MessageType_EMPTY}, nil
 	default:
 		return hotReloadError(MessageType_HOT_RELOAD_FAILED, fmt.Errorf("core is %s", currentCoreState()))
 	}

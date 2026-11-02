@@ -169,16 +169,16 @@ func (h *MobilePlatformInterface) LookupUser(username string) (*libbox.PlatformU
 	return h.platform.LookupUser(username)
 }
 
-func (h *MobilePlatformInterface) LookupSFTPServer() (string, error) {
+func (h *MobilePlatformInterface) LookupSFTPServer() (*libbox.StringBox, error) {
 	if h.platform == nil {
-		return "", os.ErrInvalid
+		return nil, os.ErrInvalid
 	}
 	return h.platform.LookupSFTPServer()
 }
 
-func (h *MobilePlatformInterface) ReadSystemSSHHostKey() (string, error) {
+func (h *MobilePlatformInterface) ReadSystemSSHHostKey() (*libbox.StringBox, error) {
 	if h.platform == nil {
-		return "", os.ErrInvalid
+		return nil, os.ErrInvalid
 	}
 	return h.platform.ReadSystemSSHHostKey()
 }

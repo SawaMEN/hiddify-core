@@ -223,7 +223,7 @@ def prepare(panel):
     if sniff_source.count(old) != 1 or '"context"' not in sniff_source:
         raise ValueError("Unexpected panel sniff test call signature")
     sniff_source = sniff_source.replace(old, "NewRuleAction(nil, options)")
-    sniff_source = sniff_source.replace('    "context"\\n', "")
+    sniff_source = sniff_source.replace('    "context"\n', "")
     sniff_test.write_text(sniff_source)
     # mKCP is built into the newer fork behind its native feature tag.
     # Keep the panel's legacy interoperability tests and runtime in sync.

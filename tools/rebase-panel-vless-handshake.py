@@ -19,13 +19,16 @@ def main():
         raise RuntimeError("VLESS handshake overlay semantics changed")
     source = (root / "protocol/vless/outbound.go").read_text()
     required = [
-        "stopHandshake := context.AfterFunc(ctx, func() {",
-        "conn, err = h.encryption.Handshake(conn)",
-        "_ = rawConn.Close()",
-        'return nil, E.Cause(err, "encryption handshake")',
+        "var closeOnce sync.Once",
+        "closeOnce.Do(func() { _ = rawConn.Close() })",
+        "stopHandshake := context.AfterFunc(ctx, closeRaw)",
+        "encryptedConn, handshakeErr := h.encryption.Handshake(rawConn)",
+        "closeRaw()",
+        'return nil, E.Cause(handshakeErr, "encryption handshake")',
+        "conn = encryptedConn",
     ]
     if any(source.count(x) < 2 for x in required):
-        raise RuntimeError("VLESS encryption handshake is missing current cancellation/close safety")
+        raise RuntimeError("VLESS encryption handshake is missing atomic cleanup and cancellation safety")
     print("VLESS handshake safety confirmed; current cancellable implementation retained.")
 
 if __name__ == "__main__":

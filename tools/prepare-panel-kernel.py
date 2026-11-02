@@ -208,6 +208,18 @@ def prepare(panel):
     configure_panel_cipher_rebase(panel)
     configure_panel_transport_rebase(panel)
     configure_panel_vless_reverse_rebase(panel)
+    # Refresh reverse tests copied from the maintained 3x-ui panel repository.
+    # The new lifecycle requires a scope argument; adapter.V2RayServer no longer
+    # exports Close(), and the fixture never starts that server.
+    reverse_test = panel / "deploy/hiddify/reverse_runtime_test.go.in"
+    reverse_source = reverse_test.read_text()
+    old_start = "bridge.(adapter.Lifecycle).Start(adapter.StartStatePostStart)"
+    old_close = "\tdefer api.Close()"
+    if reverse_source.count(old_start) != 1 or reverse_source.count(old_close) != 1:
+        raise ValueError("Reverse runtime tests changed, manual lifecycle review required")
+    reverse_source = reverse_source.replace(old_start, "bridge.(adapter.Lifecycle).Start(adapter.StartStatePostStart, nil)")
+    reverse_source = reverse_source.replace(old_close, "\t// The V2RayServer is not independently started; no Close lifecycle on interface.")
+    reverse_test.write_text(reverse_source)
     configure_panel_vless_handshake_rebase(panel)
 
     lock_file = panel / "docs/hiddify-core-target.json"

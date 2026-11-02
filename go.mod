@@ -292,6 +292,7 @@ require (
 	github.com/xtaci/kcp-go v5.4.20+incompatible // indirect
 	github.com/xtaci/kcp-go/v5 v5.6.72 // indirect
 	github.com/xtaci/smux v1.5.57 // indirect
+	github.com/xtls/libxray v1.260728.0
 	github.com/xtls/xray-core v1.260327.1-0.20260728075948-5ca6f4b7d4dc // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect

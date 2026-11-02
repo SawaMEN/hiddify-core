@@ -235,8 +235,8 @@ func TestPanelURIFields(t *testing.T) {
 	expect := map[string][]string{
 		"vless insecure-grpc":   {pinB64, `"insecure":true`},
 		"vmess tls pcs":         {pinB64},
-		"vless fragment-ws":     {`"fragment":true`},
-		"trojan fragment-tcp":   {`"fragment":true`},
+		"vless fragment-ws":     {`"tls_fragment":{"enabled":true`, `"size":"10-100"`, `"sleep":"1-10"`},
+		"trojan fragment-tcp":   {`"tls_fragment":{"enabled":true`, `"size":"10-100"`, `"sleep":"1-10"`},
 		"vless reality-tcp":     {`"flow":"xtls-rprx-vision"`, `"public_key":"` + pPBK + `"`, `"short_id":"` + pSID + `"`},
 		"vless tls-xhttp-extra": {`"download":{"host":"` + pDomain + `","path":"/dl` + pPath + `"`, `"server":"dl.example.com"`, pinB64, `"User-Agent":"Mozilla/5.0"`},
 		"tuic":                  {`"alpn":"h3"`, `"congestion_control":"cubic"`, `"udp_relay_mode":"native"`, `"insecure":true`},

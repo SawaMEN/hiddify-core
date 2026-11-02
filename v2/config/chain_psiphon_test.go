@@ -58,8 +58,8 @@ func TestOnlyOnePsiphonOutbound(t *testing.T) {
 // a Psiphon chain hop replaces every Psiphon of the profile
 func TestPsiphonChainRemovesProfilePsiphon(t *testing.T) {
 	for _, c := range []struct{ name, settings, hop string }{
-		{"unblocker", `{"chain-status":"unblocker","unblocker":{"mode":"psiphon","psiphon":{"region":"AUTO"}}}`, ChainUnblockerTag},
-		{"extra security", `{"chain-status":"extra_security","extra-security":{"mode":"psiphon","psiphon":{"region":"AUTO"}}}`, ChainExtraSecurityTag},
+		{"unblocker", `{"chain-status":"unblocker","unblocker":{"mode":"psiphon","psiphon":{"region":"AUTO"}}}`, ChainHopTag(ChainStatusUnblocker, ChainModePsiphon)},
+		{"extra security", `{"chain-status":"extra_security","extra-security":{"mode":"psiphon","psiphon":{"region":"AUTO"}}}`, ChainHopTag(ChainStatusExtraSecurity, ChainModePsiphon)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			options := buildWithProfile(t, c.settings, psiphonTestProfile)
@@ -69,8 +69,8 @@ func TestPsiphonChainRemovesProfilePsiphon(t *testing.T) {
 			}
 			detour := outboundDetour(t, options, tagOf(options, "via-psi-b"))
 			want := ""
-			if c.hop == ChainUnblockerTag {
-				want = ChainUnblockerTag // main outbounds dial through the unblocker
+			if c.hop == ChainHopTag(ChainStatusUnblocker, ChainModePsiphon) {
+				want = ChainHopTag(ChainStatusUnblocker, ChainModePsiphon) // main outbounds dial through the unblocker
 			}
 			if detour != want {
 				t.Fatalf("detour to a dropped psiphon: got %q, want %q", detour, want)

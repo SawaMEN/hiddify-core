@@ -50,3 +50,8 @@ jobs:
           git status --short | head -80
           git diff --name-only --diff-filter=U || true
           git diff --cached --stat || true
+          echo '=== THREE-WAY OVERLAP DETAILS ==='
+          for f in common/tls/reality_client.go option/tls.go protocol/vless/outbound.go; do
+            echo "----- $f -----"
+            git --no-pager diff --cc -- "$f" | head -240 || true
+          done

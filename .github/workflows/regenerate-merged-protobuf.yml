@@ -1,0 +1,44 @@
+name: Regenerate merged gRPC bindings
+
+on:
+  push:
+    branches:
+      - sync/hiddify-upstream-20261102
+    paths:
+      - v2/hcore/hcore.proto
+      - v2/hcore/hcore_service.proto
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install protobuf compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y protobuf-compiler
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+      - name: Regenerate bindings while preserving custom NetworkProbe API
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          protoc -I . -I /usr/include --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative v2/hcore/hcore.proto v2/hcore/hcore_service.proto
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2/hcore/hcore.pb.go v2/hcore/hcore_service.pb.go v2/hcore/hcore_service_grpc.pb.go
+          if ! git diff --cached --quiet; then
+            git commit -m "gen(proto): synchronize upstream admin RPC and custom NetworkProbe bindings"
+            git push origin HEAD:refs/heads/sync/hiddify-upstream-20261102
+          fi

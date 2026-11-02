@@ -78,6 +78,19 @@ def configure_panel_vless_reverse_rebase(panel):
     build.write_text(script.replace(before, after))
 
 
+def configure_panel_vless_handshake_rebase(panel):
+    """Retain the upstream context-cancellable handshake implementation."""
+    source = Path(__file__).with_name("rebase-panel-vless-handshake.py")
+    (panel / "tools/rebase-panel-vless-handshake.py").write_text(source.read_text())
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    before = 'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/vless-handshake.patch"'
+    after = 'python3 "$task_root/tools/rebase-panel-vless-handshake.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/vless-handshake.patch"'
+    if script.count(before) != 1:
+        raise ValueError("Cannot find pinned VLESS handshake overlay")
+    build.write_text(script.replace(before, after))
+
+
 def prepare_runtime_dependencies(panel, module):
     """Rebase the panel's additive dependency overlay onto this exact core."""
     patch = panel / "deploy/hiddify/runtime-dependencies.patch"
@@ -195,6 +208,7 @@ def prepare(panel):
     configure_panel_cipher_rebase(panel)
     configure_panel_transport_rebase(panel)
     configure_panel_vless_reverse_rebase(panel)
+    configure_panel_vless_handshake_rebase(panel)
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())

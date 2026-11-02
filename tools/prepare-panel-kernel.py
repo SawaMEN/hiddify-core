@@ -26,6 +26,19 @@ def gitlink(name):
     return fields[2]
 
 
+def configure_panel_protection_rebase(panel):
+    """Rebase protection patch in the disposable panel checkout, never silently skip it."""
+    source = Path(__file__).with_name("rebase-panel-protection.py")
+    (panel / "tools/rebase-panel-protection.py").write_text(source.read_text())
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    before = 'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/protection-options.patch"'
+    after = 'python3 "$task_root/tools/rebase-panel-protection.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/protection-options.patch"'
+    if script.count(before) != 1:
+        raise ValueError("Cannot find pinned panel protection overlay")
+    build.write_text(script.replace(before, after))
+
+
 def prepare_runtime_dependencies(panel, module):
     """Rebase the panel's additive dependency overlay onto this exact core."""
     patch = panel / "deploy/hiddify/runtime-dependencies.patch"
@@ -139,6 +152,7 @@ def prepare(panel):
         raise ValueError("Invalid Sing-box revision")
 
     prepare_runtime_dependencies(panel, Path("go.mod").read_text())
+    configure_panel_protection_rebase(panel)
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())

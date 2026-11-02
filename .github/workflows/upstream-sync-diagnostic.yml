@@ -45,7 +45,9 @@ jobs:
           echo '=== STRAIGHT APPLY ==='
           git apply --check /tmp/panel/deploy/hiddify/protection-options.patch || true
           echo '=== THREE WAY APPLY ==='
-          git apply --3way --index /tmp/panel/deploy/hiddify/protection-options.patch || true
+          cd ..
+          python3 tools/rebase-panel-protection.py hiddify-sing-box /tmp/panel/deploy/hiddify/protection-options.patch
+          cd hiddify-sing-box
           echo '=== STAGED/UNMERGED ==='
           git status --short | head -80
           git diff --name-only --diff-filter=U || true

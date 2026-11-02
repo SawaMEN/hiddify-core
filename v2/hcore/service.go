@@ -2,6 +2,8 @@ package hcore
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	box "github.com/sagernet/sing-box"
 
@@ -33,11 +35,36 @@ func NewServiceWithStartupContext(ctx, startupCtx context.Context, options optio
 			&hiddifyMainServiceManager{},
 		},
 	}
+	watch := newStopwatch("start/service")
 	err := libbox.CheckConfigOptions(&options)
 	if err != nil {
 		return nil, err
 	}
+	watch.step("checking the config")
 	instance := daemon.NewStartedService(bopts)
+	if stop != nil {
+		started := make(chan struct{})
+		defer close(started)
+		go func() {
+			select {
+			case <-stop:
+			case <-started:
+				return
+			}
+			// the instance only becomes interruptible once it is created, so keep asking until the
+			// start has given up
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				instance.InterruptStart()
+				select {
+				case <-started:
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+	}
 
 	// for i := 0; i < 10; i++ {
 	// 	if hutils.IsPortInUse(options.Inbounds[0].SocksOptions.ListenPort) {
@@ -55,6 +82,7 @@ func NewServiceWithStartupContext(ctx, startupCtx context.Context, options optio
 		instance.Close()
 		return nil, err
 	}
+	watch.step("starting the inbounds, outbounds and services")
 
 	// instance.GetInstance().AddPostService("hiddifyMainServiceManager", &hiddifyMainServiceManager{})
 
@@ -63,6 +91,24 @@ func NewServiceWithStartupContext(ctx, startupCtx context.Context, options optio
 	// }
 
 	return instance, nil
+}
+
+// closeService stops ss and ends its observer goroutines. CloseService alone
+// stops only the box and leaves five goroutines running for every service built.
+func closeService(ss *daemon.StartedService) error {
+	watch := newStopwatch("stop/service")
+	// a close that takes long is the thing to look at: show what every goroutine is waiting for
+	slow := time.AfterFunc(3*time.Second, func() {
+		path := fmt.Sprint(sWorkingPath, "/data/goroutine-stop-slow.log")
+		reportTiming("stop/service: closing takes more than 3s, goroutines dumped to " + path)
+		dumpGoroutinesToFile(path)
+	})
+	defer slow.Stop()
+	err := ss.CloseService()
+	watch.step("closing the box (inbounds, outbounds, services)")
+	ss.Close()
+	watch.step("ending the observers")
+	return err
 }
 
 func (h *HiddifyInstance) UrlTestHistory() *urltest.HistoryStorage {

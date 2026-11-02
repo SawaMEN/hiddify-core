@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/hiddify/hiddify-core/v2/config"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
 )
 
+// Restart queues a restart of the core and answers at once with STOPPING; the outcome
+// (STOPPING, STOPPED, STARTING, STARTED) is reported through CoreInfoListener.
 func (s *CoreService) Restart(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
 	return Restart(ctx, in)
 }

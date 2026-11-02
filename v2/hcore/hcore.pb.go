@@ -23,15 +23,28 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// The lifecycle is owned by the core: STOPPED -> STARTING -> WAITING -> STARTED, and STOPPING
+// from any running state. A start is accepted only from STOPPED. While the core runs, its
+// monitoring moves it between WAITING, STARTED and NO_AVAILABLE_PROXIES.
 type CoreStates int32
 
 const (
-	CoreStates_STOPPED  CoreStates = 0
+	CoreStates_STOPPED CoreStates = 0
+	// the background core is starting up completely
 	CoreStates_STARTING CoreStates = 1
-	CoreStates_STARTED  CoreStates = 2
+	// the core is up and at least one proxy has a positive ping; a lost ping moves it back to
+	// WAITING
+	CoreStates_STARTED CoreStates = 2
+	// a stop was requested: reported at once, and every queued start is dropped
 	CoreStates_STOPPING CoreStates = 3
 	// the running core is applying a new config (HotReload); traffic keeps flowing
 	CoreStates_HOT_RELOADING CoreStates = 4
+	// the core is up and no proxy has a ping yet (not tested, or the ping was lost); a positive
+	// ping moves it to STARTED
+	CoreStates_WAITING CoreStates = 5
+	// the core is up and every proxy was tested and timed out; not an error, a positive ping
+	// moves it to STARTED
+	CoreStates_NO_AVAILABLE_PROXIES CoreStates = 6
 )
 
 // Enum value maps for CoreStates.
@@ -42,13 +55,17 @@ var (
 		2: "STARTED",
 		3: "STOPPING",
 		4: "HOT_RELOADING",
+		5: "WAITING",
+		6: "NO_AVAILABLE_PROXIES",
 	}
 	CoreStates_value = map[string]int32{
-		"STOPPED":       0,
-		"STARTING":      1,
-		"STARTED":       2,
-		"STOPPING":      3,
-		"HOT_RELOADING": 4,
+		"STOPPED":              0,
+		"STARTING":             1,
+		"STARTED":              2,
+		"STOPPING":             3,
+		"HOT_RELOADING":        4,
+		"WAITING":              5,
+		"NO_AVAILABLE_PROXIES": 6,
 	}
 )
 
@@ -224,6 +241,65 @@ func (SetupMode) EnumDescriptor() ([]byte, []int) {
 	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{2}
 }
 
+// Connection state of an outbound or endpoint (mirrors adapter.Status).
+type Status int32
+
+const (
+	Status_READY        Status = 0
+	Status_CONNECTING   Status = 1
+	Status_RECONNECTING Status = 2
+	Status_SEARCHING    Status = 3
+	Status_FAILED       Status = 4
+	Status_REGISTERING  Status = 5
+)
+
+// Enum value maps for Status.
+var (
+	Status_name = map[int32]string{
+		0: "READY",
+		1: "CONNECTING",
+		2: "RECONNECTING",
+		3: "SEARCHING",
+		4: "FAILED",
+		5: "REGISTERING",
+	}
+	Status_value = map[string]int32{
+		"READY":        0,
+		"CONNECTING":   1,
+		"RECONNECTING": 2,
+		"SEARCHING":    3,
+		"FAILED":       4,
+		"REGISTERING":  5,
+	}
+)
+
+func (x Status) Enum() *Status {
+	p := new(Status)
+	*p = x
+	return p
+}
+
+func (x Status) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Status) Descriptor() protoreflect.EnumDescriptor {
+	return file_v2_hcore_hcore_proto_enumTypes[3].Descriptor()
+}
+
+func (Status) Type() protoreflect.EnumType {
+	return &file_v2_hcore_hcore_proto_enumTypes[3]
+}
+
+func (x Status) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Status.Descriptor instead.
+func (Status) EnumDescriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{3}
+}
+
 type LogLevel int32
 
 const (
@@ -266,11 +342,11 @@ func (x LogLevel) String() string {
 }
 
 func (LogLevel) Descriptor() protoreflect.EnumDescriptor {
-	return file_v2_hcore_hcore_proto_enumTypes[3].Descriptor()
+	return file_v2_hcore_hcore_proto_enumTypes[4].Descriptor()
 }
 
 func (LogLevel) Type() protoreflect.EnumType {
-	return &file_v2_hcore_hcore_proto_enumTypes[3]
+	return &file_v2_hcore_hcore_proto_enumTypes[4]
 }
 
 func (x LogLevel) Number() protoreflect.EnumNumber {
@@ -279,7 +355,7 @@ func (x LogLevel) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LogLevel.Descriptor instead.
 func (LogLevel) EnumDescriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{3}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{4}
 }
 
 type LogType int32
@@ -315,11 +391,11 @@ func (x LogType) String() string {
 }
 
 func (LogType) Descriptor() protoreflect.EnumDescriptor {
-	return file_v2_hcore_hcore_proto_enumTypes[4].Descriptor()
+	return file_v2_hcore_hcore_proto_enumTypes[5].Descriptor()
 }
 
 func (LogType) Type() protoreflect.EnumType {
-	return &file_v2_hcore_hcore_proto_enumTypes[4]
+	return &file_v2_hcore_hcore_proto_enumTypes[5]
 }
 
 func (x LogType) Number() protoreflect.EnumNumber {
@@ -328,7 +404,163 @@ func (x LogType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LogType.Descriptor instead.
 func (LogType) EnumDescriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{4}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{5}
+}
+
+type AdminPreference int32
+
+const (
+	AdminPreference_ADMIN_PREFERENCE_UNSET           AdminPreference = 0
+	AdminPreference_ADMIN_PREFERENCE_PREFER_ADMIN    AdminPreference = 1
+	AdminPreference_ADMIN_PREFERENCE_PREFER_NO_ADMIN AdminPreference = 2
+)
+
+// Enum value maps for AdminPreference.
+var (
+	AdminPreference_name = map[int32]string{
+		0: "ADMIN_PREFERENCE_UNSET",
+		1: "ADMIN_PREFERENCE_PREFER_ADMIN",
+		2: "ADMIN_PREFERENCE_PREFER_NO_ADMIN",
+	}
+	AdminPreference_value = map[string]int32{
+		"ADMIN_PREFERENCE_UNSET":           0,
+		"ADMIN_PREFERENCE_PREFER_ADMIN":    1,
+		"ADMIN_PREFERENCE_PREFER_NO_ADMIN": 2,
+	}
+)
+
+func (x AdminPreference) Enum() *AdminPreference {
+	p := new(AdminPreference)
+	*p = x
+	return p
+}
+
+func (x AdminPreference) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AdminPreference) Descriptor() protoreflect.EnumDescriptor {
+	return file_v2_hcore_hcore_proto_enumTypes[6].Descriptor()
+}
+
+func (AdminPreference) Type() protoreflect.EnumType {
+	return &file_v2_hcore_hcore_proto_enumTypes[6]
+}
+
+func (x AdminPreference) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AdminPreference.Descriptor instead.
+func (AdminPreference) EnumDescriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{6}
+}
+
+type AdminBgServiceDecision int32
+
+const (
+	AdminBgServiceDecision_ADMIN_BG_SERVICE_NO                        AdminBgServiceDecision = 0
+	AdminBgServiceDecision_ADMIN_BG_SERVICE_ALREADY_CONNECTED         AdminBgServiceDecision = 1
+	AdminBgServiceDecision_ADMIN_BG_SERVICE_NEEDS_ADMIN               AdminBgServiceDecision = 2
+	AdminBgServiceDecision_ADMIN_BG_SERVICE_OPTIONAL_PROXY_NEED_ADMIN AdminBgServiceDecision = 3
+)
+
+// Enum value maps for AdminBgServiceDecision.
+var (
+	AdminBgServiceDecision_name = map[int32]string{
+		0: "ADMIN_BG_SERVICE_NO",
+		1: "ADMIN_BG_SERVICE_ALREADY_CONNECTED",
+		2: "ADMIN_BG_SERVICE_NEEDS_ADMIN",
+		3: "ADMIN_BG_SERVICE_OPTIONAL_PROXY_NEED_ADMIN",
+	}
+	AdminBgServiceDecision_value = map[string]int32{
+		"ADMIN_BG_SERVICE_NO":                        0,
+		"ADMIN_BG_SERVICE_ALREADY_CONNECTED":         1,
+		"ADMIN_BG_SERVICE_NEEDS_ADMIN":               2,
+		"ADMIN_BG_SERVICE_OPTIONAL_PROXY_NEED_ADMIN": 3,
+	}
+)
+
+func (x AdminBgServiceDecision) Enum() *AdminBgServiceDecision {
+	p := new(AdminBgServiceDecision)
+	*p = x
+	return p
+}
+
+func (x AdminBgServiceDecision) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AdminBgServiceDecision) Descriptor() protoreflect.EnumDescriptor {
+	return file_v2_hcore_hcore_proto_enumTypes[7].Descriptor()
+}
+
+func (AdminBgServiceDecision) Type() protoreflect.EnumType {
+	return &file_v2_hcore_hcore_proto_enumTypes[7]
+}
+
+func (x AdminBgServiceDecision) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AdminBgServiceDecision.Descriptor instead.
+func (AdminBgServiceDecision) EnumDescriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{7}
+}
+
+type EnsureAdminBgServiceProgress int32
+
+const (
+	EnsureAdminBgServiceProgress_ENSURE_ADMIN_BG_WAITING_FOR_ELEVATION    EnsureAdminBgServiceProgress = 0
+	EnsureAdminBgServiceProgress_ENSURE_ADMIN_BG_SERVICE_STARTING         EnsureAdminBgServiceProgress = 1
+	EnsureAdminBgServiceProgress_ENSURE_ADMIN_BG_SERVICE_CONNECTED        EnsureAdminBgServiceProgress = 2
+	EnsureAdminBgServiceProgress_ENSURE_ADMIN_BG_FAILED_PERMISSION_DENIED EnsureAdminBgServiceProgress = 3
+	EnsureAdminBgServiceProgress_ENSURE_ADMIN_BG_FAILED_OTHER             EnsureAdminBgServiceProgress = 4
+)
+
+// Enum value maps for EnsureAdminBgServiceProgress.
+var (
+	EnsureAdminBgServiceProgress_name = map[int32]string{
+		0: "ENSURE_ADMIN_BG_WAITING_FOR_ELEVATION",
+		1: "ENSURE_ADMIN_BG_SERVICE_STARTING",
+		2: "ENSURE_ADMIN_BG_SERVICE_CONNECTED",
+		3: "ENSURE_ADMIN_BG_FAILED_PERMISSION_DENIED",
+		4: "ENSURE_ADMIN_BG_FAILED_OTHER",
+	}
+	EnsureAdminBgServiceProgress_value = map[string]int32{
+		"ENSURE_ADMIN_BG_WAITING_FOR_ELEVATION":    0,
+		"ENSURE_ADMIN_BG_SERVICE_STARTING":         1,
+		"ENSURE_ADMIN_BG_SERVICE_CONNECTED":        2,
+		"ENSURE_ADMIN_BG_FAILED_PERMISSION_DENIED": 3,
+		"ENSURE_ADMIN_BG_FAILED_OTHER":             4,
+	}
+)
+
+func (x EnsureAdminBgServiceProgress) Enum() *EnsureAdminBgServiceProgress {
+	p := new(EnsureAdminBgServiceProgress)
+	*p = x
+	return p
+}
+
+func (x EnsureAdminBgServiceProgress) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EnsureAdminBgServiceProgress) Descriptor() protoreflect.EnumDescriptor {
+	return file_v2_hcore_hcore_proto_enumTypes[8].Descriptor()
+}
+
+func (EnsureAdminBgServiceProgress) Type() protoreflect.EnumType {
+	return &file_v2_hcore_hcore_proto_enumTypes[8]
+}
+
+func (x EnsureAdminBgServiceProgress) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EnsureAdminBgServiceProgress.Descriptor instead.
+func (EnsureAdminBgServiceProgress) EnumDescriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{8}
 }
 
 type CoreInfoResponse struct {
@@ -932,6 +1164,13 @@ func (x *OutboundInfo) GetDetour() string {
 	return ""
 }
 
+func (x *OutboundInfo) GetStatus() Status {
+	if x != nil {
+		return x.Status
+	}
+	return Status_READY
+}
+
 type IpInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ip            string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`                     // The IP address.
@@ -1038,6 +1277,13 @@ func (x *IpInfo) GetPostalCode() string {
 		return x.PostalCode
 	}
 	return ""
+}
+
+func (x *IpInfo) GetFromCache() bool {
+	if x != nil {
+		return x.FromCache
+	}
+	return false
 }
 
 type OutboundGroup struct {
@@ -1164,6 +1410,13 @@ func (*OutboundGroupList) Descriptor() ([]byte, []int) {
 func (x *OutboundGroupList) GetItems() []*OutboundGroup {
 	if x != nil {
 		return x.Items
+	}
+	return nil
+}
+
+func (x *OutboundGroupList) GetChainHop() *OutboundInfo {
+	if x != nil {
+		return x.ChainHop
 	}
 	return nil
 }
@@ -2032,6 +2285,242 @@ func (*StopRequest) Descriptor() ([]byte, []int) {
 	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{24}
 }
 
+type CrashReport struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Name      string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                            // the report directory or file name
+	CrashedAt string `protobuf:"bytes,2,opt,name=crashed_at,json=crashedAt,proto3" json:"crashed_at,omitempty"` // RFC 3339
+	Source    string `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`                        // crash_reports, oom_reports, or the live file name
+	IsCrash   bool   `protobuf:"varint,4,opt,name=is_crash,json=isCrash,proto3" json:"is_crash,omitempty"`      // the content is a crash (panic, fatal error, signal), not other stderr output
+}
+
+func (x *CrashReport) Reset() {
+	*x = CrashReport{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_v2_hcore_hcore_proto_msgTypes[25]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *CrashReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrashReport) ProtoMessage() {}
+
+func (x *CrashReport) ProtoReflect() protoreflect.Message {
+	mi := &file_v2_hcore_hcore_proto_msgTypes[25]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrashReport.ProtoReflect.Descriptor instead.
+func (*CrashReport) Descriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *CrashReport) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CrashReport) GetCrashedAt() string {
+	if x != nil {
+		return x.CrashedAt
+	}
+	return ""
+}
+
+func (x *CrashReport) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *CrashReport) GetIsCrash() bool {
+	if x != nil {
+		return x.IsCrash
+	}
+	return false
+}
+
+type CrashReportList struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Reports []*CrashReport `protobuf:"bytes,1,rep,name=reports,proto3" json:"reports,omitempty"`
+}
+
+func (x *CrashReportList) Reset() {
+	*x = CrashReportList{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_v2_hcore_hcore_proto_msgTypes[26]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *CrashReportList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrashReportList) ProtoMessage() {}
+
+func (x *CrashReportList) ProtoReflect() protoreflect.Message {
+	mi := &file_v2_hcore_hcore_proto_msgTypes[26]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrashReportList.ProtoReflect.Descriptor instead.
+func (*CrashReportList) Descriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *CrashReportList) GetReports() []*CrashReport {
+	if x != nil {
+		return x.Reports
+	}
+	return nil
+}
+
+type ExportDiagnosticsRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	DestinationPath string            `protobuf:"bytes,1,opt,name=destination_path,json=destinationPath,proto3" json:"destination_path,omitempty"`                                                                          // where to write the zip; empty is a file in the temp directory
+	ExtraFiles      map[string][]byte `protobuf:"bytes,2,rep,name=extra_files,json=extraFiles,proto3" json:"extra_files,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // more files for the zip, by name (the app's logs, another core's dump)
+	Inline          bool              `protobuf:"varint,3,opt,name=inline,proto3" json:"inline,omitempty"`                                                                                                                  // also return the zip's bytes
+}
+
+func (x *ExportDiagnosticsRequest) Reset() {
+	*x = ExportDiagnosticsRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_v2_hcore_hcore_proto_msgTypes[27]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ExportDiagnosticsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportDiagnosticsRequest) ProtoMessage() {}
+
+func (x *ExportDiagnosticsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v2_hcore_hcore_proto_msgTypes[27]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportDiagnosticsRequest.ProtoReflect.Descriptor instead.
+func (*ExportDiagnosticsRequest) Descriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ExportDiagnosticsRequest) GetDestinationPath() string {
+	if x != nil {
+		return x.DestinationPath
+	}
+	return ""
+}
+
+func (x *ExportDiagnosticsRequest) GetExtraFiles() map[string][]byte {
+	if x != nil {
+		return x.ExtraFiles
+	}
+	return nil
+}
+
+func (x *ExportDiagnosticsRequest) GetInline() bool {
+	if x != nil {
+		return x.Inline
+	}
+	return false
+}
+
+type ExportDiagnosticsResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Path    string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Content []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+}
+
+func (x *ExportDiagnosticsResponse) Reset() {
+	*x = ExportDiagnosticsResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_v2_hcore_hcore_proto_msgTypes[28]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ExportDiagnosticsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportDiagnosticsResponse) ProtoMessage() {}
+
+func (x *ExportDiagnosticsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v2_hcore_hcore_proto_msgTypes[28]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportDiagnosticsResponse.ProtoReflect.Descriptor instead.
+func (*ExportDiagnosticsResponse) Descriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ExportDiagnosticsResponse) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ExportDiagnosticsResponse) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
 type LANIPResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ip            string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
@@ -2066,7 +2555,7 @@ func (x *LANIPResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LANIPResponse.ProtoReflect.Descriptor instead.
 func (*LANIPResponse) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{25}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *LANIPResponse) GetIp() string {
@@ -2479,6 +2968,7 @@ func file_v2_hcore_hcore_proto_init() {
 		return
 	}
 	file_v2_hcore_hcore_proto_msgTypes[5].OneofWrappers = []any{}
+	file_v2_hcore_hcore_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

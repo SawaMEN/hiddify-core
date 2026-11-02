@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/hiddify/hiddify-core/v2/config"
@@ -17,6 +18,9 @@ import (
 	"github.com/sagernet/sing/service"
 )
 
+// Start queues a start of the core and answers at once with STARTING; the outcome is reported
+// through CoreInfoListener. The core is started only once it is disconnected: ALREADY_STARTED
+// when it is started or will be, INSTANCE_NOT_STOPPED while it is stopping.
 func (s *CoreService) Start(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
 	return Start(ctx, in)
 }
@@ -25,14 +29,58 @@ func Start(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
 	return StartService(ctx, in)
 }
 
-func (s *CoreService) StartService(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
-	return StartService(ctx, in)
+// StartService starts the core after the operations queued before it, and returns the outcome.
+func StartService(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
+	queue.Lock()
+	result := queueStartLocked(ctx, in)
+	queue.Unlock()
+	return wait(result)
+}
+
+// queueStartLocked queues a start that a stop called after it cancels; queue must be locked.
+func queueStartLocked(ctx context.Context, in *StartRequest) <-chan operationResult {
+	ctx = withStopSignalLocked(ctx)
+	return enqueueLocked(operationStart, "start", func() (*CoreInfoResponse, error) {
+		if err := contextErr(ctx); err != nil {
+			return cancelledStart(err)
+		}
+		return startServiceLocked(ctx, in)
+	})
+}
+
+// cancelledStart reports a start given up because its context is done; the core stays STOPPED.
+// For a stop, nothing is published: the stop that follows reports STOPPING and STOPPED.
+func cancelledStart(err error) (*CoreInfoResponse, error) {
+	Log(LogLevel_WARNING, LogType_CORE, "start cancelled: ", err.Error())
+	if errors.Is(err, errStopped) {
+		// the stop that gave this start up already reports STOPPING and then STOPPED
+		stateMu.Lock()
+		if currentCoreState() == CoreStates_STARTING {
+			setCoreState(CoreStates_STOPPED)
+		}
+		stateMu.Unlock()
+		return &CoreInfoResponse{CoreState: CoreStates_STOPPED, MessageType: MessageType_INSTANCE_NOT_STARTED, Message: "start cancelled"}, err
+	}
+	return SetCoreStatus(CoreStates_STOPPED, MessageType_INSTANCE_NOT_STARTED, "start cancelled"), err
+}
+
+// currentProfileName is the name of the profile the core was last started with. It is what
+// SystemInfo.current_profile reports; kept in memory so status readers never hit the database
+// and never show a stale name after a profile switch.
+var currentProfileName atomic.Value
+
+func CurrentProfileName() string {
+	if v, ok := currentProfileName.Load().(string); ok {
+		return v
+	}
+	return ""
 }
 
 func saveLastStartRequest(in *StartRequest) error {
 	if in.ConfigContent == "" && in.ConfigPath == "" {
 		return nil
 	}
+	currentProfileName.Store(in.ConfigName)
 	settings := db.GetTable[hcommon.AppSettings]()
 	return settings.UpdateInsert(
 		&hcommon.AppSettings{
@@ -122,6 +170,7 @@ func startServiceLocked(ctx context.Context, in *StartRequest, epoch uint64) (co
 			Message:     "instance already started",
 		}, nil
 	}
+	watch := newStopwatch("start")
 	SetCoreStatus(CoreStates_STARTING, MessageType_EMPTY, "")
 
 	in, err = loadLastStartRequestIfNeeded(in)
@@ -133,6 +182,7 @@ func startServiceLocked(ctx context.Context, in *StartRequest, epoch uint64) (co
 	static.previousStartRequest = in
 	static.stateLock.Unlock()
 
+	watch.step("loading the request")
 	options, err := BuildConfig(ctx, in)
 	if err != nil {
 		return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
@@ -172,12 +222,17 @@ func startServiceLocked(ctx context.Context, in *StartRequest, epoch uint64) (co
 		case <-time.After(time.Second):
 		}
 	}
+	if err := contextErr(ctx); err != nil {
+		return cancelledStart(err)
+	}
+	watch.step("preparing the platform and the delay")
 	libbox.SetMemoryLimit(C.IsIos || !in.DisableMemoryLimit)
 	if err := ctx.Err(); err != nil {
 		return errorWrapper(MessageType_START_SERVICE, err)
 	}
 	instance, err := NewServiceWithStartupContext(serviceCtx, ctx, *options)
 	if err != nil {
+		watch.done("failed: " + err.Error())
 		return errorWrapper(MessageType_START_SERVICE, err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -194,6 +249,14 @@ func startServiceLocked(ctx context.Context, in *StartRequest, epoch uint64) (co
 			static.ListenPort = opts.ListenPort
 		}
 	}
-
-	return SetCoreStatus(CoreStates_STARTED, MessageType_EMPTY, ""), nil
+	// Publish WAITING so CoreInfoListener leaves STARTING; the connectivity watcher only
+	// moves among WAITING/STARTED/NO_AVAILABLE_PROXIES and cannot leave STARTING itself.
+	response, ok := setCoreStatusIf([]CoreStates{CoreStates_STARTING}, CoreStates_WAITING, MessageType_EMPTY, "")
+	if !ok {
+		// a stop called meanwhile has already reported STOPPING; it closes the service
+		return &CoreInfoResponse{CoreState: currentCoreState(), MessageType: MessageType_INSTANCE_NOT_STARTED, Message: "start cancelled"}, errStopped
+	}
+	startConnectivityWatcher()
+	watch.done("core is up (WAITING for a ping)")
+	return response, nil
 }

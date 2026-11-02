@@ -84,13 +84,34 @@ func setDns(options *option.Options, opt *HiddifyOptions, staticIps *map[string]
 	if err != nil {
 		return err
 	}
-	remoteGroup, remoteMembers, err := getDNSGroupOptions(DNSMultiRemoteTag, *remote_dns, remoteAddr, DNSDirectTag, func(string) string {
+	// through a blocked proxy a UDP query only times out, while TCP fails at once, so every TCP
+	// server goes first, then UDP, then TLS
+	remoteGroup, remoteMembers, err := getDNSGroupOptions(DNSMultiRemoteTag, *remote_dns, remoteAddr, DNSDirectTag, true, func(string) string {
 		return OutboundMainDetour
 	})
 	if err != nil {
 		return err
 	}
-	directGroup, directMembers, err := getDNSGroupOptions(DNSMultiDirectTag, *direct_dns, opt.DirectDnsAddress, DNSLocalTag, func(address string) string {
+	// Behind extra security every remote server answers through the hop. When the hop is down or
+	// still coming up, names must still resolve (for the hop itself, among others), so the group
+	// ends with DoH at Google and Cloudflare through the profile alone, past the hop. The
+	// subscription's own resolver is not used then (the app drops it): it is reachable through
+	// the profile, not through the hop.
+	if opt.ChainStatus == ChainStatusExtraSecurity {
+		for _, fallback := range []struct{ name, address string }{
+			{"google", "https://8.8.8.8/dns-query"},
+			{"cloudflare", "https://1.1.1.1/dns-query"},
+		} {
+			server, err := getDNSServerOptions(DNSRemoteViaProfileTag+"-"+fallback.name, fallback.address, DNSDirectTag, OutboundSelectTag)
+			if err != nil {
+				return err
+			}
+			remoteMembers = append(remoteMembers, *server)
+			group := remoteGroup.Options.(*option.GroupDNSServerOptions)
+			group.Servers = append(group.Servers, server.Tag)
+		}
+	}
+	directGroup, directMembers, err := getDNSGroupOptions(DNSMultiDirectTag, *direct_dns, opt.DirectDnsAddress, DNSLocalTag, false, func(address string) string {
 		if strings.HasPrefix(address, "udp://") {
 			return ""
 		}
@@ -259,7 +280,7 @@ func addForceDirect(options *option.Options, hopt *HiddifyOptions) ([]option.Def
 				RouteOptions: option.DNSRouteActionOptions{
 					Server: DNSRemoteNoWarpTag,
 					AbstractDNSRouteActionOptions: option.AbstractDNSRouteActionOptions{
-						Strategy:       hopt.DirectDnsDomainStrategy,
+						Strategy:       dnsStrategy(hopt.DirectDnsDomainStrategy, hopt.IPv6Mode),
 						BypassIfFailed: false,
 						RewriteTTL:     &DEFAULT_DNS_TTL,
 					},
@@ -294,7 +315,7 @@ func addForceDirect(options *option.Options, hopt *HiddifyOptions) ([]option.Def
 					RouteOptions: option.DNSRouteActionOptions{
 						Server: DNSMultiDirectTag,
 						AbstractDNSRouteActionOptions: option.AbstractDNSRouteActionOptions{
-							Strategy:       hopt.DirectDnsDomainStrategy,
+							Strategy:       dnsStrategy(hopt.DirectDnsDomainStrategy, hopt.IPv6Mode),
 							RewriteTTL:     &DEFAULT_DNS_TTL,
 							BypassIfFailed: false,
 						},
@@ -311,7 +332,7 @@ func addForceDirect(options *option.Options, hopt *HiddifyOptions) ([]option.Def
 		// 			Action: C.RuleActionTypeRoute,
 		// 			RouteOptions: option.DNSRouteActionOptions{
 		// 				Server:         DNSTricksDirectTag,
-		// 				Strategy:       hopt.DirectDnsDomainStrategy,
+		// 				Strategy:       dnsStrategy(hopt.DirectDnsDomainStrategy, hopt.IPv6Mode),
 		// 				BypassIfFailed: false,
 		// 			},
 		// 		},
@@ -326,7 +347,7 @@ func addForceDirect(options *option.Options, hopt *HiddifyOptions) ([]option.Def
 		// 			Action: C.RuleActionTypeRoute,
 		// 			RouteOptions: option.DNSRouteActionOptions{
 		// 				Server:         DNSLocalTag,
-		// 				Strategy:       hopt.DirectDnsDomainStrategy,
+		// 				Strategy:       dnsStrategy(hopt.DirectDnsDomainStrategy, hopt.IPv6Mode),
 		// 				BypassIfFailed: false,
 		// 			},
 		// 		},
@@ -360,9 +381,12 @@ func dnsGroupAddresses(selected string) []string {
 	if host == fallback {
 		fallback = "1.1.1.1"
 	}
+	// the selected server, then every transport of its host, so a tcp:// or tls:// selection
+	// keeps its plain UDP twin as the next thing to try: a proxy that refuses TCP 53 and drops
+	// TLS 853 used to leave only the fallback host's UDP, four failures down the list
 	candidates := []string{selected}
 	if host != "" {
-		candidates = append(candidates, "tcp://"+host, "tls://"+host)
+		candidates = append(candidates, "udp://"+host, "tcp://"+host, "tls://"+host)
 	}
 	candidates = append(candidates, "udp://"+fallback, "tcp://"+fallback, "tls://"+fallback)
 	var addresses []string
@@ -374,13 +398,45 @@ func dnsGroupAddresses(selected string) []string {
 	return addresses
 }
 
-// getDNSGroupOptions builds a sequential DNS group: the already built selected server first,
-// then a member per remaining address of dnsGroupAddresses.
-func getDNSGroupOptions(tag string, selected option.DNSServerOptions, selectedAddress, domainResolver string, detour func(address string) string) (*option.DNSServerOptions, []option.DNSServerOptions, error) {
-	members := []string{selected.Tag}
+// tcpBeforeUDP moves each host's TCP address in front of its UDP address, so a group tries TCP first
+// and falls back to UDP.
+// tcpFirstOrder puts every TCP server first, then UDP, then TLS, each host in its listed order
+// within a transport. A UDP query through a blocked proxy only times out, where a TCP connection
+// is refused at once, so UDP goes after TCP; TLS, a TCP port a proxy's exit blocks more often
+// than 53, goes last. DoH and the system resolver count as TCP: they fail as fast. The selected
+// server keeps the front of its transport.
+func tcpFirstOrder(addresses []string) []string {
+	rank := func(address string) int {
+		switch {
+		case strings.HasPrefix(address, "udp://"), strings.HasPrefix(address, "h3://"), strings.HasPrefix(address, "quic://"):
+			return 1
+		case strings.HasPrefix(address, "tls://"):
+			return 2
+		}
+		return 0
+	}
+	out := slices.Clone(addresses)
+	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) < rank(out[j]) })
+	return out
+}
+
+// getDNSGroupOptions builds a sequential DNS group: the already built selected server and a member
+// per remaining address of dnsGroupAddresses, in that order, or with every TCP server first, then
+// UDP, then TLS, when [tcpFirst].
+func getDNSGroupOptions(tag string, selected option.DNSServerOptions, selectedAddress, domainResolver string, tcpFirst bool, detour func(address string) string) (*option.DNSServerOptions, []option.DNSServerOptions, error) {
+	addresses := dnsGroupAddresses(selectedAddress)
+	ordered := addresses
+	if tcpFirst {
+		ordered = tcpFirstOrder(addresses)
+	}
+	var members []string
 	var servers []option.DNSServerOptions
-	for i, address := range dnsGroupAddresses(selectedAddress)[1:] {
-		server, err := getDNSServerOptions(fmt.Sprint(tag, "-", i+1), address, domainResolver, detour(address))
+	for _, address := range ordered {
+		if address == addresses[0] {
+			members = append(members, selected.Tag)
+			continue
+		}
+		server, err := getDNSServerOptions(fmt.Sprint(tag, "-", len(servers)+1), address, domainResolver, detour(address))
 		if err != nil {
 			return nil, nil, E.Cause(err, "dns group ", tag, ": ", address)
 		}

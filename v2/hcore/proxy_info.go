@@ -1,21 +1,21 @@
 package hcore
 
 import (
+	"context"
 	"strings"
 	"time"
 
 	"github.com/hiddify/hiddify-core/v2/config"
 	hcommon "github.com/hiddify/hiddify-core/v2/hcommon"
+	sbox "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/monitoring"
-	C "github.com/sagernet/sing-box/constant"
 	G "github.com/sagernet/sing-box/protocol/group"
 	"github.com/sagernet/sing-box/protocol/group/balancer"
 	E "github.com/sagernet/sing/common/exceptions"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/service"
 	"google.golang.org/grpc"
-
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -27,11 +27,63 @@ func groupNow(group adapter.OutboundGroup) string {
 	return ""
 }
 
-func outboundDisplayType(outbound adapter.Outbound) string {
-	if displayer, ok := outbound.(interface{ DisplayType() string }); ok {
-		return displayer.DisplayType()
+// connectedVia is the outbound a group sends every connection through, or "" when it picks one
+// per connection (a balancer other than lowest-delay), so which one is in use is not known.
+func connectedVia(group adapter.OutboundGroup) string {
+	if b, ok := group.(*balancer.Balancer); ok && b.Strategy() != balancer.StrategyLowestDelay {
+		return ""
 	}
-	return C.ProxyDisplayName(outbound.Type())
+	return groupNow(group)
+}
+
+// unreachableDelay is the delay a failed URL test records, as in the monitoring service.
+const unreachableDelay uint16 = 65535
+
+// bestGroupMember returns the member of a group with the lowest known delay. A balancer has no
+// selection before its first pick, and its group tag would otherwise be taken for the outbound
+// carrying traffic.
+func bestGroupMember(group adapter.OutboundGroup, history adapter.URLTestHistoryStorage) string {
+	best := ""
+	bestDelay := unreachableDelay
+	for _, tag := range group.All() {
+		var delay uint16
+		if history != nil {
+			if his := history.LoadURLTestHistory(tag); his != nil {
+				delay = his.Delay
+			}
+		}
+		if delay == 0 || delay >= unreachableDelay {
+			continue
+		}
+		if delay < bestDelay {
+			best, bestDelay = tag, delay
+		}
+	}
+	return best
+}
+
+// resolveActiveOutbound walks down the selected chain to the outbound that actually carries
+// traffic, so re-testing the active proxy tests one config instead of every config in its group.
+func resolveActiveOutbound(box *sbox.Box, tag string, history adapter.URLTestHistoryStorage) string {
+	for depth := 0; depth < 8; depth++ {
+		outbound, loaded := box.Outbound().Outbound(tag)
+		if !loaded {
+			return tag
+		}
+		group, isGroup := outbound.(adapter.OutboundGroup)
+		if !isGroup {
+			return tag
+		}
+		next := groupNow(group)
+		if next == "" {
+			next = bestGroupMember(group, history)
+		}
+		if next == "" || next == tag {
+			return tag
+		}
+		tag = next
+	}
+	return tag
 }
 
 func (h *HiddifyInstance) GetProxyInfo(url_test_history *adapter.URLTestHistory, detour adapter.Outbound) *OutboundInfo {
@@ -44,7 +96,8 @@ func (h *HiddifyInstance) GetProxyInfo(url_test_history *adapter.URLTestHistory,
 	// realTag := ""
 
 	out.Tag = detour.Tag()
-	out.Type = outboundDisplayType(detour)
+	out.Type = adapter.DisplayType(detour) // the type, and "Connecting..." while not ready
+	out.Status = Status(detour.Status())
 	if group, isGroup := detour.(adapter.OutboundGroup); isGroup {
 		out.IsGroup = true
 		gnow := groupNow(group)
@@ -89,6 +142,7 @@ func (h *HiddifyInstance) GetProxyInfo(url_test_history *adapter.URLTestHistory,
 				Latitude:    url_test_history.IpInfo.Latitude,
 				Longitude:   url_test_history.IpInfo.Longitude,
 				PostalCode:  url_test_history.IpInfo.PostalCode,
+				FromCache:   url_test_history.IpInfoFromCache,
 			}
 		}
 
@@ -115,15 +169,6 @@ func (h *HiddifyInstance) GetAllProxiesInfo(hismap map[string]*adapter.URLTestHi
 	for _, it := range box.Outbound().Outbounds() {
 		his, _ := hismap[it.Tag()]
 		outbounds_converted[it.Tag()] = h.GetProxyInfo(his, it)
-	}
-	for _, it := range outbounds_converted {
-		if it.Detour == "" {
-			continue
-		}
-		if det, ok := outbounds_converted[it.Detour]; ok {
-			it.TagDisplay += " → " + det.TagDisplay
-			it.Type += " → " + det.Type
-		}
 	}
 	for _, it := range box.Outbound().Outbounds() {
 		if group, isGroup := it.(adapter.OutboundGroup); isGroup {
@@ -163,10 +208,10 @@ func (h *HiddifyInstance) GetAllProxiesInfo(hismap map[string]*adapter.URLTestHi
 				continue
 			}
 			pinfo := outbounds_converted[itemTag]
-			pinfo.IsSelected = itemTag == selectedTag
-			if onlyGroupitems && pinfo.GroupSelectedTagDisplay != nil && pinfo.TagDisplay != *pinfo.GroupSelectedTagDisplay {
-				pinfo.TagDisplay = pinfo.TagDisplay + " → " + *pinfo.GroupSelectedTagDisplay
+			if pinfo == nil {
+				continue
 			}
+			pinfo.IsSelected = itemTag == selectedTag
 			group.Items = append(group.Items, pinfo)
 			pinfo.IsVisible = !strings.Contains(itemTag, "§hide§")
 
@@ -177,40 +222,54 @@ func (h *HiddifyInstance) GetAllProxiesInfo(hismap map[string]*adapter.URLTestHi
 
 		groups.Items = append(groups.Items, &group)
 
-		if onlyGroupitems && group.Tag == config.OutboundSelectTag {
-			showEntryHop(&group, outbounds_converted, func(tag string) string {
-				if out, ok := box.Outbound().Outbound(tag); ok {
-					return C.ProxyDisplayName(out.Type())
-				}
-				if ep, ok := box.Endpoint().Get(tag); ok {
-					return C.ProxyDisplayName(ep.Type())
-				}
-				return TrimTagName(tag)
-			})
-		}
-
+	}
+	if onlyGroupitems {
+		groups.ChainHop = outbounds_converted[chainHop(box)] // nil with the chain off
 	}
 
 	return &groups
 }
 
-// showEntryHop makes the hop that traffic enters before the selected proxy (extra security, or
-// legacy WARP) the active entry of the main group, since its delay and IP are what the user gets.
-// It is labelled "<hop protocol> → <selected config>", e.g. "Psiphon → my-server".
-func showEntryHop(group *OutboundGroup, infos map[string]*OutboundInfo, protocolName func(tag string) string) {
-	for _, entryTag := range []string{config.ChainExtraSecurityTag} {
-		entry, ok := infos[entryTag]
-		if !ok {
+func isChainTag(tag string) bool {
+	return config.IsChainExtraSecurityTag(tag) || config.IsChainUnblockerTag(tag)
+}
+
+// chainHop is the tag of the extra security or unblocker hop the traffic goes through now, or ""
+// with the chain off. The selectable mode puts its hops under a selector and a lowest-delay
+// balancer; then it follows their selection down to the hop.
+func chainHop(box *sbox.Box) string {
+	var tags []string
+	members := make(map[string]bool) // what the selectable mode's selector and balancer hold
+	for _, out := range box.Outbound().Outbounds() {
+		if !isChainTag(out.Tag()) {
 			continue
 		}
-		entry.TagDisplay = protocolName(entryTag)
-		if selected, ok := infos[group.Selected]; ok {
-			entry.TagDisplay += " → " + selected.TagDisplay
+		tags = append(tags, out.Tag())
+		if group, isGroup := out.(adapter.OutboundGroup); isGroup {
+			for _, member := range group.All() {
+				members[member] = true
+			}
 		}
-		group.Selected = entry.Tag
-		group.Items = append([]*OutboundInfo{entry}, group.Items...)
-		return
 	}
+	for _, endpoint := range box.Endpoint().Endpoints() {
+		if isChainTag(endpoint.Tag()) {
+			tags = append(tags, endpoint.Tag())
+		}
+	}
+	for _, tag := range tags {
+		if members[tag] {
+			continue
+		}
+		for range 3 {
+			out, _ := box.Outbound().Outbound(tag)
+			group, isGroup := out.(adapter.OutboundGroup)
+			if !isGroup {
+				return tag
+			}
+			tag = groupNow(group)
+		}
+	}
+	return ""
 }
 
 func TrimTagName(tag string) string {
@@ -226,65 +285,111 @@ func (s *CoreService) MainOutboundsInfo(req *hcommon.Empty, stream grpc.ServerSt
 }
 
 func (h *HiddifyInstance) AllProxiesInfoStream(stream grpc.ServerStreamingServer[OutboundGroupList], onlyMain bool) error {
-	// stream.Send(&OutboundGroupList{})
 	h.MakeSureContextIsNew(stream.Context())
 
-	if ctx, urlTestHistory := h.Context(), h.UrlTestHistory(); ctx != nil && urlTestHistory != nil {
-		monitor := monitoring.Get(ctx)
+	ctx := h.Context()
+	if ctx == nil || h.UrlTestHistory() == nil {
+		return E.New("hiddify service not found")
+	}
+	monitor := monitoring.Get(ctx)
+	if monitor == nil {
+		return E.New("outbound monitoring not ready")
+	}
 
 		if err := stream.Send(h.GetAllProxiesInfo(monitor.OutboundsHistory(""), onlyMain)); err != nil {
 			return err
 		}
 
-		urltestch, err := monitor.SubscribeGroup("")
-		if err != nil {
-			Log(LogLevel_ERROR, LogType_CORE, "failed to send outbounds info: ", err)
-			// return err
-		}
-		defer monitor.UnsubscribeGroup("", urltestch)
+	urltestch, err := h.subscribeAllProxies(stream.Context(), monitor)
+	if err != nil {
+		return err
+	}
+	defer monitor.UnsubscribeGroup("", urltestch)
 
-		// timer2 := time.NewTicker(10 * time.Second)
-		// defer timer2.Stop()
-		debounceWindow := 1000 * time.Millisecond
-		var (
-			timer   *time.Timer
-			timerCh <-chan time.Time
-		)
-		defer func() {
-			if timer != nil {
-				timer.Stop()
-			}
-		}()
-		for {
+	// Debounce URL-test / traffic bursts; selection events (GroupEvent.Priority) flush at once.
+	const debounceWindow = 1000 * time.Millisecond
+	var (
+		timer   *time.Timer
+		timerCh <-chan time.Time
+	)
+	stopTimer := func() {
+		if timer == nil {
+			return
+		}
+		if !timer.Stop() {
 			select {
-			case <-stream.Context().Done():
+			case <-timer.C:
+			default:
+			}
+		}
+		timer = nil
+		timerCh = nil
+	}
+	defer stopTimer()
+
+	send := func() error {
+		return stream.Send(h.GetAllProxiesInfo(monitor.OutboundsHistory(""), onlyMain))
+	}
+
+	for {
+		select {
+		case <-stream.Context().Done():
+			return nil
+		case <-ctx.Done():
+			return nil
+		case ev, ok := <-urltestch:
+			if !ok {
 				return nil
-			case <-ctx.Done():
-				return nil
-			case _, ok := <-urltestch:
-				if !ok {
-					return nil
-				}
-				if timer == nil {
-					timer = time.NewTimer(debounceWindow)
-					timerCh = timer.C
-				}
-			case <-timerCh:
-				if err := stream.Send(h.GetAllProxiesInfo(monitor.OutboundsHistory(""), onlyMain)); err != nil {
-					Log(LogLevel_ERROR, LogType_CORE, "failed to send outbounds info: ", err)
-					// return err
-				}
-				if !timer.Stop() {
-					select {
-					case <-timer.C:
-					default:
+			}
+			priority := ev.Priority
+			for drain := true; drain; {
+				select {
+				case ev2, ok2 := <-urltestch:
+					if !ok2 {
+						return nil
 					}
+					if ev2.Priority {
+						priority = true
+					}
+				default:
+					drain = false
 				}
-				timer = nil
-				timerCh = nil
+			}
+			if priority {
+				stopTimer()
+				if err := send(); err != nil {
+					Log(LogLevel_ERROR, LogType_CORE, "failed to send outbounds info: ", err)
+					return err
+				}
+				continue
+			}
+			if timer == nil {
+				timer = time.NewTimer(debounceWindow)
+				timerCh = timer.C
+			}
+		case <-timerCh:
+			stopTimer()
+			if err := send(); err != nil {
+				Log(LogLevel_ERROR, LogType_CORE, "failed to send outbounds info: ", err)
+				return err
 			}
 		}
 	}
+}
 
-	return E.New("hiddify service not found")
+// subscribeAllProxies waits until the catch-all monitoring group exists (box start race) then
+// subscribes. A failed Subscribe used to leave a nil channel and block the stream forever.
+func (h *HiddifyInstance) subscribeAllProxies(streamCtx context.Context, monitor *monitoring.OutboundMonitoring) (<-chan monitoring.GroupEvent, error) {
+	for attempt := 0; attempt < 20; attempt++ {
+		urltestch, err := monitor.SubscribeGroup("")
+		if err == nil {
+			return urltestch, nil
+		}
+		select {
+		case <-streamCtx.Done():
+			return nil, streamCtx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return nil, E.New("outbound monitoring group not ready")
 }

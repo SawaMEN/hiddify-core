@@ -77,55 +77,26 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 		configOpt = DefaultHiddifyOptions()
 	}
 
-	var jsonObj map[string]interface{} = make(map[string]interface{})
-
-	var tmpJsonResult any
-	jsonDecoder := json.NewDecoder(SJ.NewCommentFilter(bytes.NewReader(content)))
-	if err := jsonDecoder.Decode(&tmpJsonResult); err == nil {
+	// Keep the fork's panel URI parser, while accepting upstream JSON, YAML,
+	// Clash, Xray JSON, and subscription link representations.
+	var structured any
+	decoder := json.NewDecoder(SJ.NewCommentFilter(bytes.NewReader(content)))
+	isStructured := decoder.Decode(&structured) == nil
+	if isStructured {
 		var trailing any
-		if err := jsonDecoder.Decode(&trailing); err != io.EOF {
+		if err := decoder.Decode(&trailing); err != io.EOF {
 			return nil, fmt.Errorf("[SingboxParser] trailing JSON content")
 		}
-		if tmpJsonObj, ok := tmpJsonResult.(map[string]interface{}); ok {
-			if tmpJsonObj["outbounds"] == nil && tmpJsonObj["endpoints"] == nil {
-				kind, _ := tmpJsonObj["type"].(string)
-				if kind == "masque-client" || kind == "awg" || kind == "wireguard" {
-					jsonObj["endpoints"] = []interface{}{tmpJsonObj}
-				} else {
-					jsonObj["outbounds"] = []interface{}{tmpJsonObj}
-				}
-			} else {
-				if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
-					jsonObj = tmpJsonObj
-				} else {
-					if tmpJsonObj["outbounds"] != nil {
-						jsonObj["outbounds"] = tmpJsonObj["outbounds"]
-					}
-					if tmpJsonObj["endpoints"] != nil {
-						jsonObj["endpoints"] = tmpJsonObj["endpoints"]
-					}
-					stripPanelResolverReferences(jsonObj)
-				}
-			}
-		} else if jsonArray, ok := tmpJsonResult.([]interface{}); ok {
-			if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
-				for _, item := range jsonArray {
-					if object, ok := item.(map[string]interface{}); ok && (object["outbounds"] != nil || object["endpoints"] != nil) {
-						return nil, fmt.Errorf("multiple complete configurations cannot share one routing policy; disable full-config mode or import one configuration")
-					}
-				}
-			}
-			if err := mergePanelJSONArray(jsonObj, jsonArray); err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, fmt.Errorf("[SingboxParser] incorrect json format: expected a json object or an array of outbound objects, got %T", tmpJsonResult)
+	}
+	if !isStructured {
+		var yamlValue any
+		if yaml.Unmarshal(content, &yamlValue) == nil && isYAMLConfig(yamlValue) {
+			structured, isStructured = yamlValue, true
 		}
 	}
 	if !isStructured {
 		return parseShareLinks(ctx, content, configOpt)
 	}
-
 	options, singboxErr := parseSingboxContent(ctx, structured, configOpt, fullConfig)
 	if singboxErr == nil {
 		return options, nil
@@ -134,7 +105,6 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 		return options, err
 	}
 	if links, ok := xrayJSONShareLinks(structured); ok {
-		fmt.Printf("Convert using xray json\n")
 		v2ray, err := ray2sing.Ray2SingboxOptions(ctx, links, configOpt.UseXrayCoreWhenPossible)
 		if err != nil {
 			return nil, fmt.Errorf("[XrayJsonParser] %w", err)
@@ -147,6 +117,8 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 	return nil, singboxErr
 }
 
+func parseShareLinks(ctx context.Context, content []byte, configOpt *HiddifyOptions) (*option.Options, error) {
+	content = expandSubscriptionLinks(ctx, content)
 	if links, handled, err := parsePanelLinks(ctx, string(content)); handled {
 		if err != nil {
 			return nil, err
@@ -155,7 +127,7 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 	}
 	v2ray, err := ray2sing.Ray2SingboxOptions(ctx, string(content), configOpt.UseXrayCoreWhenPossible)
 	if err != nil {
-		return nil, fmt.Errorf("unable to determine config format")
+		return nil, fmt.Errorf("unable to determine config format: %w", err)
 	}
 	return patchConfigOptions(ctx, v2ray, "V2rayParser", configOpt)
 }

@@ -82,6 +82,18 @@ def refresh_go_module_source_check(lock, module):
     panel_build["toolchain"] = "go" + match.group(0)[3:]
 
 
+def refresh_awg_peer_source_check(lock):
+    """Track the current AWG receiver name without dropping user statistics evidence."""
+    path = "hiddify-sing-box/protocol/awg/endpoint.go"
+    matches = [check for check in lock["source_checks"] if check.get("path") == path]
+    if len(matches) != 1 or matches[0].get("contains") not in (
+        "metadata.User = e.peerUsers.Lookup(source.Addr)",
+        "metadata.User = receiver.peerUsers.Lookup(source.Addr)",
+    ):
+        raise ValueError("Unexpected AWG source evidence check")
+    matches[0]["contains"] = "metadata.User = receiver.peerUsers.Lookup(source.Addr)"
+
+
 def refresh_panel_audit_toolchain_check(panel, lock):
     """Pin the panel's disposable runtime audit to the checked-out core Go version."""
     toolchain = lock["panel_build"]["toolchain"]
@@ -131,6 +143,7 @@ def prepare(panel):
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
     refresh_go_module_source_check(lock, Path("go.mod").read_text())
+    refresh_awg_peer_source_check(lock)
     refresh_panel_audit_toolchain_check(panel, lock)
     target = lock["target"]
     if target["repository"] != "https://github.com/SawaMEN/hiddify-core":

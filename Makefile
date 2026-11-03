@@ -28,9 +28,29 @@ endif
 EMBED_LDFLAGS+=-X github.com/sagernet/sing-box/protocol/psiphon.embeddedHiddifyConfig=$(PSIPHON_CONFIG_ENCRYPTED)
 endif
 endif
+# Per-build UUID so the app can match its downloaded core to the tunnel service (Go only; Dart never embeds it).
+ifeq ($(strip $(HIDDIFY_BUILD_ID)),)
+HIDDIFY_BUILD_ID := $(shell (uuidgen 2>/dev/null || openssl rand -hex 16) | tr '[:upper:]' '[:lower:]' | tr -d '\n')
+endif
+EMBED_LDFLAGS+=-X github.com/hiddify/hiddify-core/v2/hcore/buildid.ID=$(strip $(HIDDIFY_BUILD_ID))
 LDFLAGS=-w -s -checklinkname=0 -buildid= $${CODE_VERSION} $(EMBED_LDFLAGS)
 GOBUILDLIB=CGO_ENABLED=1 go build -trimpath -ldflags="$(LDFLAGS)" -buildmode=c-shared
 GOBUILDSRV=CGO_ENABLED=1 go build -ldflags="$(LDFLAGS)" -trimpath -tags $(TAGS)
+
+# Windows PE files: keep the Go symbol table (no -s), drop only DWARF (-w).
+# Symbol-less, fully stripped Go PE files are a classic feature of ML/heuristic AV
+# verdicts (Webroot W32.Trojan.Gen, Bkav W32.Malware.*, DeepInstinct) on VirusTotal.
+# The size cost is a few percent; the app logic is unchanged.
+WINDOWS_LDFLAGS=-w -checklinkname=0 -buildid= $${CODE_VERSION} $(EMBED_LDFLAGS)
+GOBUILDLIB_WINDOWS=CGO_ENABLED=1 go build -trimpath -ldflags="$(WINDOWS_LDFLAGS)" -buildmode=c-shared
+GOBUILDSRV_WINDOWS=CGO_ENABLED=1 go build -ldflags="$(WINDOWS_LDFLAGS)" -trimpath -tags $(TAGS)
+
+# go-winres embeds VERSIONINFO (CompanyName/ProductName/...), the icon and an
+# application manifest into the Windows PE files. PE files without a version
+# resource are another strong "unknown dropper" signal for AV engines.
+GO_WINRES_VERSION=v0.3.3
+# "v3.2.1-5-gabcdef" -> "3.2.1.5"; anything unparsable -> "0.0.0.0"
+WIN_FILE_VERSION=$(shell printf '%s\n' "$(VERSION)" | sed -E 's/^v//; s/-([0-9]+)-g[0-9a-f]+.*$$/.\1/; s/[^0-9.].*$$//; s/\.+$$//' | awk -F. '{ printf "%d.%d.%d.%d", $$1, $$2, $$3, $$4 }')
 
 CRONET_DIR=./cronet
 GOMOBILE_VERSION=v0.1.13
@@ -91,10 +111,22 @@ webui:
 	mv Yacd-meta-gh-pages bin/webui
 
 .PHONY: build
-windows-amd64: prepare
+# Generates rsrc_windows_amd64.syso next to the Windows main packages. Go links
+# .syso files automatically (only for GOOS=windows GOARCH=amd64 thanks to the suffix).
+.PHONY: windows-winres
+windows-winres:
+	go install github.com/tc-hib/go-winres@$(GO_WINRES_VERSION)
+	rm -f ./platform/desktop/rsrc_windows_*.syso ./cmd/clilauncher/rsrc_windows_*.syso ./cmd/adminlauncher/rsrc_windows_*.syso ./cmd/bydll/rsrc_windows_*.syso ./cmd/bydll/cli.syso
+	echo "Windows PE file version: $(WIN_FILE_VERSION) (from $(VERSION))"
+	$$(go env GOPATH)/bin/go-winres make --in ./release/winres/core.json --out ./platform/desktop/rsrc --arch amd64 --file-version "$(WIN_FILE_VERSION)" --product-version "$(WIN_FILE_VERSION)"
+	$$(go env GOPATH)/bin/go-winres make --in ./release/winres/cli.json --out ./cmd/clilauncher/rsrc --arch amd64 --file-version "$(WIN_FILE_VERSION)" --product-version "$(WIN_FILE_VERSION)"
+	$$(go env GOPATH)/bin/go-winres make --in ./release/winres/admin.json --out ./cmd/adminlauncher/rsrc --arch amd64 --file-version "$(WIN_FILE_VERSION)" --product-version "$(WIN_FILE_VERSION)"
+	ls -la ./platform/desktop/rsrc_windows_amd64.syso ./cmd/clilauncher/rsrc_windows_amd64.syso ./cmd/adminlauncher/rsrc_windows_amd64.syso
+
+windows-amd64: prepare windows-winres
 	rm -rf $(BINDIR)/*
 	$(MAKE) BINDIR=$(BINDIR) fetch-libcronet-windows_amd64.dll
-	env GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc  $(GOBUILDLIB) -tags $(TAGS),$(WINDOWS_ADD_TAGS)   -o $(BINDIR)/$(LIBNAME).dll ./platform/desktop
+	env GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc  $(GOBUILDLIB_WINDOWS) -tags $(TAGS),$(WINDOWS_ADD_TAGS)   -o $(BINDIR)/$(LIBNAME).dll ./platform/desktop
 	echo "core built, now building cli" 
 	ls -R $(BINDIR)/
 	go install -mod=readonly github.com/akavel/rsrc@v0.10.2 ||echo "rsrc error in installation"
@@ -194,7 +226,7 @@ linux-custom: prepare  install_cronet
 	mkdir -p $(BINDIR)/
 	#env GOARCH=mips $(GOBUILDSRV) -o $(BINDIR)/$(CLINAME) ./cmd/
 	$(load_cronet_env)
-	go build -ldflags="$(LDFLAGS)" -trimpath -tags $(TAGS) -o $(BINDIR)/$(CLINAME) ./cmd/main
+	go build -ldflags="$(LDFLAGS)" -trimpath -tags $(CLI_TAGS) -o $(BINDIR)/$(CLINAME) ./cmd/main
 	chmod +x $(BINDIR)/$(CLINAME)
 	make webui
 
@@ -202,18 +234,67 @@ macos-amd64:
 	env GOOS=darwin GOARCH=amd64 CGO_CFLAGS="-mmacosx-version-min=10.11 -O2" CGO_LDFLAGS="-mmacosx-version-min=10.11 -O2 -lpthread" CGO_ENABLED=1 go build -trimpath -ldflags="$(EMBED_LDFLAGS)" -tags $(TAGS),$(MACOS_ADD_TAGS) -buildmode=c-shared -o $(BINDIR)/$(LIBNAME)-amd64.dylib ./platform/desktop
 macos-arm64:
 	env GOOS=darwin GOARCH=arm64 CGO_CFLAGS="-mmacosx-version-min=10.11 -O2" CGO_LDFLAGS="-mmacosx-version-min=10.11 -O2 -lpthread" CGO_ENABLED=1 go build -trimpath -ldflags="$(EMBED_LDFLAGS)" -tags $(TAGS),$(MACOS_ADD_TAGS) -buildmode=c-shared -o $(BINDIR)/$(LIBNAME)-arm64.dylib ./platform/desktop
-	
-macos: prepare macos-amd64 macos-arm64 
+
+# Packet-tunnel / system-extension bind (same tags as hiddify-app macos/scripts/build-admin-bgservice-core.sh).
+TUNNEL_TAGS=$(call tags,$(CORE_TAGS) $(NAIVE_TAGS) with_dhcp)
+
+.PHONY: macos-tunnel
+macos-tunnel:
+	mkdir -p $(BINDIR)
+	go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+	go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+	gomobile bind -v -target macos -macosversion 12.0 -libname HiddifyTunnelCore -tags $(TUNNEL_TAGS) \
+		-trimpath -ldflags "$(LDFLAGS)" \
+		-o $(BINDIR)/HiddifyTunnelCore.xcframework \
+		github.com/sagernet/sing-box/experimental/libbox github.com/hiddify/hiddify-core/v2/hcore/tunnel
+
+macos: prepare macos-amd64 macos-arm64 macos-tunnel
 	
 	lipo -create $(BINDIR)/$(LIBNAME)-amd64.dylib $(BINDIR)/$(LIBNAME)-arm64.dylib -output $(BINDIR)/$(LIBNAME).dylib
 	cp $(BINDIR)/$(LIBNAME).dylib ./$(LIBNAME).dylib 
 	mv $(BINDIR)/$(LIBNAME)-arm64.h $(BINDIR)/desktop.h 
+	test -d $(BINDIR)/HiddifyTunnelCore.xcframework
 	# env GOOS=darwin GOARCH=amd64 CGO_CFLAGS="-mmacosx-version-min=10.15" CGO_LDFLAGS="-mmacosx-version-min=10.15" CGO_LDFLAGS="bin/$(LIBNAME).dylib"  CGO_ENABLED=1 $(GOBUILDSRV)  -o $(BINDIR)/$(CLINAME) ./cmd/bydll
 	# rm ./$(LIBNAME).dylib
 	# chmod +x $(BINDIR)/$(CLINAME)
 
+# Current host arch only; skips the tunnel/admin-bg xcframework (faster local Flutter runs).
+.PHONY: macos-lite
+macos-lite: prepare
+	mkdir -p $(BINDIR)
+	@arch=$$(uname -m); \
+	if [ "$$arch" = "arm64" ]; then \
+		$(MAKE) macos-arm64; \
+		cp $(BINDIR)/$(LIBNAME)-arm64.dylib $(BINDIR)/$(LIBNAME).dylib; \
+		mv $(BINDIR)/$(LIBNAME)-arm64.h $(BINDIR)/desktop.h; \
+	elif [ "$$arch" = "x86_64" ]; then \
+		$(MAKE) macos-amd64; \
+		cp $(BINDIR)/$(LIBNAME)-amd64.dylib $(BINDIR)/$(LIBNAME).dylib; \
+		mv $(BINDIR)/$(LIBNAME)-amd64.h $(BINDIR)/desktop.h; \
+	else \
+		echo "unsupported macOS arch: $$arch" >&2; exit 1; \
+	fi
+	cp $(BINDIR)/$(LIBNAME).dylib ./$(LIBNAME).dylib
+
+
 prepare: 
 	go mod download
+
+# Print a Makefile variable, e.g. `make -s print-CLI_TAGS` (used by CI).
+print-%:
+	@echo '$($*)'
+
+# OpenWrt packages of an already built CLI binary, for one OpenWrt architecture:
+#   make openwrt-packages WRT_ARCH=x86_64 WRT_BINARY=bin/HiddifyCli WRT_VERSION=5.3.0
+# The .apk needs apk-tools 3 (`apk mkpkg`) on the PATH; without it only the .ipk is built.
+WRT_ARCH ?= x86_64
+WRT_BINARY ?= $(BINDIR)/$(CLINAME)
+WRT_VERSION ?= $(shell git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo 0.0.0)
+.PHONY: openwrt-packages
+openwrt-packages:
+	release/openwrt/build-ipk.sh $(WRT_ARCH) $(WRT_VERSION) $(WRT_BINARY) $(BINDIR)/openwrt/$(WRT_ARCH)/hiddify-core_$(patsubst v%,%,$(WRT_VERSION))_$(WRT_ARCH).ipk
+	command -v apk >/dev/null && release/openwrt/build-apk.sh $(WRT_ARCH) $(WRT_VERSION) $(WRT_BINARY) $(BINDIR)/openwrt/$(WRT_ARCH) || echo "apk-tools 3 not found: .apk skipped"
+	release/openwrt/make-feed.sh $(BINDIR)/openwrt/$(WRT_ARCH)
 
 clean:
 	rm $(BINDIR)/*

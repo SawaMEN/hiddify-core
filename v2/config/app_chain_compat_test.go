@@ -44,7 +44,7 @@ func TestAndroidProjectedWarpCreatesOneNativeHop(t *testing.T) {
 
 func TestLegacyWarpMigratesWithoutDroppingDetour(t *testing.T) {
 	built := buildChainConfig(t, `{"warp":{"enable":true,"mode":"proxy_over_warp","id":"old-key","clean-ip":"162.159.192.1","clean-port":2408}}`)
-	if outboundDetour(t, built, "proxy-a") != ChainUnblockerTag {
+	if outboundDetour(t, built, "proxy-a") != ChainHopTag(ChainStatusUnblocker, ChainModeWarp) {
 		t.Fatal("legacy WARP bypassed")
 	}
 	w := built.Endpoints[0].Options.(*option.WARPEndpointOptions)
@@ -70,7 +70,7 @@ func TestChainCompatibilityRejectsAmbiguousOrForbiddenModes(t *testing.T) {
 func TestNativePsiphonPreservesPairingAndNormalizesRegion(t *testing.T) {
 	built := buildChainConfig(t, `{"chain-status":"unblocker","unblocker":{"mode":"psiphon","psiphon":{"region":" de ","conduit-pairing-id":" pair "}}}`)
 	for _, out := range built.Outbounds {
-		if out.Tag == ChainUnblockerTag {
+		if out.Tag == ChainHopTag(ChainStatusUnblocker, ChainModePsiphon) {
 			p := out.Options.(*option.PsiphonOutboundOptions)
 			if p.EgressRegion != "DE" || p.ConduitPairingID != "pair" {
 				t.Fatal("Psiphon settings lost")

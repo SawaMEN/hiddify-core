@@ -77,85 +77,48 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 		configOpt = DefaultHiddifyOptions()
 	}
 
-	var jsonObj map[string]interface{} = make(map[string]interface{})
-
-	var tmpJsonResult any
-	jsonDecoder := json.NewDecoder(SJ.NewCommentFilter(bytes.NewReader(content)))
-	if err := jsonDecoder.Decode(&tmpJsonResult); err == nil {
+	// Keep the fork's panel URI parser, while accepting upstream JSON, YAML,
+	// Clash, Xray JSON, and subscription link representations.
+	var structured any
+	decoder := json.NewDecoder(SJ.NewCommentFilter(bytes.NewReader(content)))
+	isStructured := decoder.Decode(&structured) == nil
+	if isStructured {
 		var trailing any
-		if err := jsonDecoder.Decode(&trailing); err != io.EOF {
+		if err := decoder.Decode(&trailing); err != io.EOF {
 			return nil, fmt.Errorf("[SingboxParser] trailing JSON content")
 		}
-		if tmpJsonObj, ok := tmpJsonResult.(map[string]interface{}); ok {
-			if tmpJsonObj["outbounds"] == nil && tmpJsonObj["endpoints"] == nil {
-				kind, _ := tmpJsonObj["type"].(string)
-				if kind == "masque-client" || kind == "awg" || kind == "wireguard" {
-					jsonObj["endpoints"] = []interface{}{tmpJsonObj}
-				} else {
-					jsonObj["outbounds"] = []interface{}{tmpJsonObj}
-				}
-			} else {
-				if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
-					jsonObj = tmpJsonObj
-				} else {
-					if tmpJsonObj["outbounds"] != nil {
-						jsonObj["outbounds"] = tmpJsonObj["outbounds"]
-					}
-					if tmpJsonObj["endpoints"] != nil {
-						jsonObj["endpoints"] = tmpJsonObj["endpoints"]
-					}
-					stripPanelResolverReferences(jsonObj)
-				}
-			}
-		} else if jsonArray, ok := tmpJsonResult.([]interface{}); ok {
-			if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
-				for _, item := range jsonArray {
-					if object, ok := item.(map[string]interface{}); ok && (object["outbounds"] != nil || object["endpoints"] != nil) {
-						return nil, fmt.Errorf("multiple complete configurations cannot share one routing policy; disable full-config mode or import one configuration")
-					}
-				}
-			}
-			if err := mergePanelJSONArray(jsonObj, jsonArray); err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, fmt.Errorf("[SingboxParser] incorrect json format: expected a json object or an array of outbound objects, got %T", tmpJsonResult)
-		}
-
-		// the legacy WireGuard outbound was removed from sing-box: use the WireGuard endpoint
-		outbounds, _ := jsonObj["outbounds"].([]interface{})
-		endpoints, _ := jsonObj["endpoints"].([]interface{})
-		if outbounds, endpoints = ray2sing.MoveLegacyWireGuardOutbounds(outbounds, endpoints); len(endpoints) > 0 {
-			jsonObj["outbounds"] = outbounds
-			jsonObj["endpoints"] = endpoints
-		}
-
-		newContent, err := json.MarshalIndent(jsonObj, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("[SingboxParser] %w", err)
-		}
-
-		return patchConfigStr(ctx, newContent, "SingboxParser", configOpt)
 	}
-
-	fmt.Printf("Convert using clash\n")
-	clashObj := clash.Clash{}
-	if err := yaml.Unmarshal(content, &clashObj); err == nil && clashObj.Proxies != nil {
-		if len(clashObj.Proxies) == 0 {
-			return nil, fmt.Errorf("[ClashParser] no outbounds found")
+	if !isStructured {
+		var yamlValue any
+		if yaml.Unmarshal(content, &yamlValue) == nil && isYAMLConfig(yamlValue) {
+			structured, isStructured = yamlValue, true
 		}
-		converted, endpoints, err := convert.Clash2sing(clashObj, clash2singmodel.SINGLATEST)
-		if err != nil {
-			return nil, fmt.Errorf("[ClashParser] converting clash to sing-box error: %w", err)
-		}
-		output := configByte
-		output, err = convert.Patch(output, converted, endpoints, "", "", nil)
-		if err != nil {
-			return nil, fmt.Errorf("[ClashParser] patching clash config error: %w", err)
-		}
-		return patchConfigStr(ctx, output, "ClashParser", configOpt)
 	}
+	if !isStructured {
+		return parseShareLinks(ctx, content, configOpt)
+	}
+	options, singboxErr := parseSingboxContent(ctx, structured, configOpt, fullConfig)
+	if singboxErr == nil {
+		return options, nil
+	}
+	if options, isClash, err := parseClashContent(ctx, content, configOpt); isClash {
+		return options, err
+	}
+	if links, ok := xrayJSONShareLinks(structured); ok {
+		v2ray, err := ray2sing.Ray2SingboxOptions(ctx, links, configOpt.UseXrayCoreWhenPossible)
+		if err != nil {
+			return nil, fmt.Errorf("[XrayJsonParser] %w", err)
+		}
+		return patchConfigOptions(ctx, v2ray, "XrayJsonParser", configOpt)
+	}
+	if options, err := parseShareLinks(ctx, content, configOpt); err == nil {
+		return options, nil
+	}
+	return nil, singboxErr
+}
 
+func parseShareLinks(ctx context.Context, content []byte, configOpt *HiddifyOptions) (*option.Options, error) {
+	content = expandSubscriptionLinks(ctx, content)
 	if links, handled, err := parsePanelLinks(ctx, string(content)); handled {
 		if err != nil {
 			return nil, err
@@ -163,11 +126,245 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 		return patchConfigOptions(ctx, links, "PanelShareParser", configOpt)
 	}
 	v2ray, err := ray2sing.Ray2SingboxOptions(ctx, string(content), configOpt.UseXrayCoreWhenPossible)
-	if err == nil {
-		return patchConfigOptions(ctx, v2ray, "V2rayParser", configOpt)
+	if err != nil {
+		return nil, fmt.Errorf("unable to determine config format: %w", err)
+	}
+	return patchConfigOptions(ctx, v2ray, "V2rayParser", configOpt)
+}
+
+// isYAMLConfig reports YAML that can be a config: a map, or a list of maps. A WireGuard conf
+// starting with "[Interface]" is also a YAML list, of one string.
+func isYAMLConfig(value any) bool {
+	switch value := value.(type) {
+	case map[string]any:
+		return true
+	case []any:
+		for _, item := range value {
+			if _, ok := item.(map[string]any); !ok {
+				return false
+			}
+		}
+		return len(value) > 0
+	}
+	return false
+}
+
+// parseSingboxContent reads a decoded sing-box / hiddify-core config: a config, one outbound or a list of them.
+func parseSingboxContent(ctx context.Context, structured any, configOpt *HiddifyOptions, fullConfig bool) (*option.Options, error) {
+	fmt.Printf("Convert using singbox\n")
+	var jsonObj map[string]interface{} = make(map[string]interface{})
+	if tmpJsonObj, ok := structured.(map[string]interface{}); ok {
+		if tmpJsonObj["outbounds"] == nil && tmpJsonObj["endpoints"] == nil {
+			// a single outbound object (was wrapping the empty result itself)
+			jsonObj["outbounds"] = []interface{}{tmpJsonObj}
+		} else {
+			if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
+				jsonObj = tmpJsonObj
+			} else {
+				if tmpJsonObj["outbounds"] != nil {
+					jsonObj["outbounds"] = tmpJsonObj["outbounds"]
+				}
+				if tmpJsonObj["endpoints"] != nil {
+					jsonObj["endpoints"] = tmpJsonObj["endpoints"]
+				}
+			}
+		}
+	} else if jsonArray, ok := structured.([]interface{}); ok {
+		if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
+			return nil, fmt.Errorf("[SingboxParser] a configuration array cannot be used in full-config mode")
+		}
+		// Distinguish panel subscription arrays of full config objects from
+		// simple outbound arrays. Each full config gets namespaced tags so
+		// that overlapping proxy names and local detour references survive.
+		if err := mergePanelJSONArray(jsonObj, jsonArray); err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, fmt.Errorf("[SingboxParser] incorrect json format: expected a json object or an array of outbound objects, got %T", structured)
 	}
 
-	return nil, fmt.Errorf("unable to determine config format")
+	// the legacy WireGuard outbound was removed from sing-box: use the WireGuard endpoint
+	outbounds, _ := jsonObj["outbounds"].([]interface{})
+	endpoints, _ := jsonObj["endpoints"].([]interface{})
+	if outbounds, endpoints = ray2sing.MoveLegacyWireGuardOutbounds(outbounds, endpoints); len(endpoints) > 0 {
+		jsonObj["outbounds"] = outbounds
+		jsonObj["endpoints"] = ray2sing.MoveAmneziaWireGuardFields(endpoints)
+	}
+	numberSingboxDuplicates(endpoints, outbounds)
+
+	newContent, err := json.MarshalIndent(jsonObj, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("[SingboxParser] %w", err)
+	}
+
+	return patchConfigStr(ctx, newContent, "SingboxParser", configOpt)
+}
+
+// parseClashContent reads a Clash config; isClash is false when content has no Clash proxies.
+func parseClashContent(ctx context.Context, content []byte, configOpt *HiddifyOptions) (options *option.Options, isClash bool, err error) {
+	clashObj := clash.Clash{}
+	if err := yaml.Unmarshal(content, &clashObj); err != nil || clashObj.Proxies == nil {
+		return nil, false, nil
+	}
+	fmt.Printf("Convert using clash\n")
+	if len(clashObj.Proxies) == 0 {
+		return nil, true, fmt.Errorf("[ClashParser] no outbounds found")
+	}
+	numberClashDuplicates(&clashObj)
+	converted, endpoints, err := convert.Clash2sing(clashObj, clash2singmodel.SINGLATEST)
+	if err != nil {
+		return nil, true, fmt.Errorf("[ClashParser] converting clash to sing-box error: %w", err)
+	}
+	output := configByte
+	output, err = convert.Patch(output, converted, endpoints, "", "", nil)
+	if err != nil {
+		return nil, true, fmt.Errorf("[ClashParser] patching clash config error: %w", err)
+	}
+	if output, err = addClashWireGuardFields(content, clashObj, output); err != nil {
+		return nil, true, fmt.Errorf("[ClashParser] %w", err)
+	}
+	options, err = patchConfigStr(ctx, output, "ClashParser", configOpt)
+	return options, true, err
+}
+
+// clashAmneziaFields are the keys of Clash.Meta's "amnezia-wg-option" that hiddify-core reads; the
+// AmneziaWG 1.5 drafts' j1–j3 and itime were replaced by i1–i5 and are not read.
+var clashAmneziaFields = map[string]bool{
+	"jc": true, "jmin": true, "jmax": true, "s1": true, "s2": true, "s3": true, "s4": true,
+	"h1": true, "h2": true, "h3": true, "h4": true, "i1": true, "i2": true, "i3": true, "i4": true, "i5": true,
+}
+
+// addClashWireGuardFields adds what clash2singbox drops from Clash WireGuard proxies to their
+// endpoints in output: "amnezia-wg-option", converted as sing-box-lx's values (see
+// ray2sing.MoveAmneziaWireGuardFields), and the single peer's "allowed-ips" and
+// "persistent-keepalive".
+func addClashWireGuardFields(content []byte, clashObj clash.Clash, output []byte) ([]byte, error) {
+	var raw struct {
+		Proxies []map[string]any `yaml:"proxies"`
+	}
+	if err := yaml.Unmarshal(content, &raw); err != nil {
+		return output, nil
+	}
+	options := map[string]map[string]any{} // endpoint tag → AmneziaWG values
+	peerFields := map[string]map[string]any{}
+	for i, proxy := range raw.Proxies {
+		if i >= len(clashObj.Proxies) || proxy["type"] != "wireguard" {
+			continue
+		}
+		name := clashObj.Proxies[i].Name
+		peerFields[name] = map[string]any{}
+		if allowed, ok := proxy["allowed-ips"].([]any); ok && proxy["peers"] == nil {
+			peerFields[name]["allowed_ips"] = allowed
+		}
+		if keepalive, ok := proxy["persistent-keepalive"]; ok {
+			peerFields[name]["persistent_keepalive_interval"] = keepalive
+		}
+		awg, ok := proxy["amnezia-wg-option"].(map[string]any)
+		if !ok {
+			continue
+		}
+		values := map[string]any{}
+		for key, value := range awg {
+			if clashAmneziaFields[key] {
+				values[key] = value
+			} else {
+				fmt.Printf("[ClashParser] %s: amnezia-wg-option %q is not supported\n", name, key)
+			}
+		}
+		options[name] = values
+	}
+	var config map[string]any
+	if err := json.Unmarshal(output, &config); err != nil {
+		return nil, err
+	}
+	endpoints, _ := config["endpoints"].([]any)
+	if len(endpoints) == 0 {
+		return output, nil
+	}
+	for _, item := range endpoints {
+		if endpoint, isObject := item.(map[string]any); isObject {
+			tag, _ := endpoint["tag"].(string)
+			for key, value := range options[tag] {
+				endpoint[key] = value
+			}
+			if peers, isList := endpoint["peers"].([]any); isList && len(peers) == 1 {
+				if peer, isObject := peers[0].(map[string]any); isObject {
+					for key, value := range peerFields[tag] {
+						peer[key] = value
+					}
+				}
+			}
+		}
+	}
+	config["endpoints"] = ray2sing.MoveAmneziaWireGuardFields(endpoints)
+	return json.Marshal(config)
+}
+
+// numberSingboxDuplicates numbers the repeated tags of sing-box outbounds and endpoints (see
+// duplicateNames).
+func numberSingboxDuplicates(lists ...[]any) {
+	var items []map[string]any
+	for _, list := range lists {
+		for _, item := range list {
+			if object, isObject := item.(map[string]any); isObject {
+				items = append(items, object)
+			}
+		}
+	}
+	names := make([]string, len(items))
+	for i, item := range items {
+		names[i], _ = item["tag"].(string)
+	}
+	renamed, duplicates := numberDuplicates(names)
+	if !duplicates.has() {
+		return
+	}
+	for i, item := range items {
+		if names[i] != "" {
+			item["tag"] = renamed[i]
+		}
+		if detour, isText := item["detour"].(string); isText {
+			item["detour"] = duplicates.detour(i, detour)
+		}
+		if list, isList := item["outbounds"].([]any); isList {
+			members := make([]string, len(list))
+			for k, member := range list {
+				members[k], _ = member.(string)
+			}
+			for k, member := range duplicates.members(i, members) {
+				list[k] = member
+			}
+		}
+	}
+}
+
+// numberClashDuplicates numbers the repeated names of Clash proxies and proxy groups (see
+// duplicateNames).
+func numberClashDuplicates(clashObj *clash.Clash) {
+	names := make([]string, 0, len(clashObj.Proxies)+len(clashObj.ProxyGroup))
+	for _, proxy := range clashObj.Proxies {
+		names = append(names, proxy.Name)
+	}
+	for _, group := range clashObj.ProxyGroup {
+		names = append(names, group.Name)
+	}
+	renamed, duplicates := numberDuplicates(names)
+	if !duplicates.has() {
+		return
+	}
+	for i := range clashObj.Proxies {
+		proxy := &clashObj.Proxies[i]
+		proxy.Name = renamed[i]
+		if proxy.DialerProxy != "" {
+			proxy.DialerProxy = duplicates.detour(i, proxy.DialerProxy)
+		}
+	}
+	for j := range clashObj.ProxyGroup {
+		i := len(clashObj.Proxies) + j
+		group := &clashObj.ProxyGroup[j]
+		group.Name = renamed[i]
+		group.Proxies = duplicates.members(i, group.Proxies)
+	}
 }
 
 func patchConfigStr(ctx context.Context, content []byte, name string, configOpt *HiddifyOptions) (*option.Options, error) {

@@ -95,6 +95,21 @@ class PanelAuditToolchainTest(unittest.TestCase):
                 prepare.refresh_panel_audit_toolchain_check(folder, {"panel_build": {"toolchain": "unknown"}})
 
 
+class AWGSourceEvidenceTest(unittest.TestCase):
+    def test_current_receiver_name_keeps_peer_statistics_check(self):
+        lock = {"source_checks": [{"path": "hiddify-sing-box/protocol/awg/endpoint.go",
+                                  "contains": "metadata.User = e.peerUsers.Lookup(source.Addr)"}]}
+        prepare.refresh_awg_peer_source_check(lock)
+        self.assertEqual(
+            "metadata.User = receiver.peerUsers.Lookup(source.Addr)",
+            lock["source_checks"][0]["contains"],
+        )
+
+    def test_rejects_unverified_awg_source_evidence(self):
+        with self.assertRaises(ValueError):
+            prepare.refresh_awg_peer_source_check({"source_checks": []})
+
+
 class DependencyOverlayTest(unittest.TestCase):
     def fixture(self, folder, patch):
         panel = folder / "panel"

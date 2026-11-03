@@ -55,6 +55,8 @@ type HiddifyOptions struct {
 	Mux        MuxOptions         `json:"mux,omitempty" overridable:"true"`
 	TLSTricks  TLSTricks          `json:"tls-tricks,omitempty"`
 	EnableNTP  bool               `json:"enable-ntp,omitempty"`
+	// Preserve upstream system TLS selection while leaving custom privacy settings intact.
+	UseSystemTLSEngine *bool `json:"use-system-tls-engine,omitempty"`
 	ChainStage *ChainStageOptions `json:"chain-stage,omitempty"`
 
 	DNSOptions
@@ -91,6 +93,8 @@ type URLTestOptions struct {
 	ConnectionTestUrl  string            `json:"connection-test-url,omitempty" overridable:"true"`
 	ConnectionTestUrls []string          `json:"connection-test-urls,omitempty" overridable:"true"`
 	URLTestInterval    DurationInSeconds `json:"url-test-interval,omitempty" overridable:"true"`
+	// Custom IP geolocation endpoint (subscription `ipinfo-url`); ipapi.co-compatible JSON.
+	IpInfoUrl string `json:"ipinfo-url,omitempty" overridable:"true"`
 	// URLTestIdleTimeout DurationInSeconds `json:"url-test-idle-timeout"`
 }
 

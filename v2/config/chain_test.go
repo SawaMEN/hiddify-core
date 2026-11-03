@@ -64,26 +64,26 @@ func TestChainExtraSecurityWarp(t *testing.T) {
 
 	var hop *option.WARPEndpointOptions
 	for _, ep := range options.Endpoints {
-		if ep.Tag == ChainExtraSecurityTag {
+		if ep.Tag == ChainHopTag(ChainStatusExtraSecurity, ChainModeWarp) {
 			hop = ep.Options.(*option.WARPEndpointOptions)
 		}
 	}
 	if hop == nil {
 		t.Fatal("extra security WARP endpoint not created")
 	}
-	if hop.Detour != OutboundSelectTag || hop.Profile.Detour != OutboundSelectTag {
-		t.Fatalf("extra security must dial through the main selector, got detour %q / profile detour %q", hop.Detour, hop.Profile.Detour)
+	if hop.Detour != OutboundSelectTag || hop.Profile.Detour != "" {
+		t.Fatalf("extra security tunnel must use the main selector but enrollment must stay direct: detour %q / profile detour %q", hop.Detour, hop.Profile.Detour)
 	}
 	if hop.Profile.License != "LICENSE-1" {
 		t.Fatalf("license key not applied: %q", hop.Profile.License)
 	}
-	if options.Route.Final != ChainExtraSecurityTag {
+	if options.Route.Final != ChainHopTag(ChainStatusExtraSecurity, ChainModeWarp) {
 		t.Fatalf("traffic must enter the extra security hop, route final = %q", options.Route.Final)
 	}
 	if outboundDetour(t, options, "proxy-a") != "" {
 		t.Fatal("main outbounds must not dial through the extra security hop")
 	}
-	if slices.Contains(selectorItems(options), ChainExtraSecurityTag) {
+	if slices.Contains(selectorItems(options), ChainHopTag(ChainStatusExtraSecurity, ChainModeWarp)) {
 		t.Fatal("the chain hop must not be selectable")
 	}
 }
@@ -94,7 +94,7 @@ func TestChainUnblockerPsiphon(t *testing.T) {
 
 	var hop *option.PsiphonOutboundOptions
 	for _, out := range options.Outbounds {
-		if out.Tag == ChainUnblockerTag && out.Type == C.TypePsiphon {
+		if out.Tag == ChainHopTag(ChainStatusUnblocker, ChainModePsiphon) && out.Type == C.TypePsiphon {
 			hop = out.Options.(*option.PsiphonOutboundOptions)
 		}
 	}
@@ -108,14 +108,14 @@ func TestChainUnblockerPsiphon(t *testing.T) {
 		t.Fatalf("unblocker must dial directly with the chosen region, got detour %q region %q", hop.Detour, hop.EgressRegion)
 	}
 	for _, tag := range []string{"proxy-a", "proxy-b"} {
-		if got := outboundDetour(t, options, tag); got != ChainUnblockerTag {
+		if got := outboundDetour(t, options, tag); got != ChainHopTag(ChainStatusUnblocker, ChainModePsiphon) {
 			t.Fatalf("%s must dial through the unblocker, detour = %q", tag, got)
 		}
 	}
 	if options.Route.Final != OutboundSelectTag {
 		t.Fatalf("traffic must still enter the main selector, route final = %q", options.Route.Final)
 	}
-	if slices.Contains(selectorItems(options), ChainUnblockerTag) {
+	if slices.Contains(selectorItems(options), ChainHopTag(ChainStatusUnblocker, ChainModePsiphon)) {
 		t.Fatal("the chain hop must not be selectable")
 	}
 }
@@ -126,7 +126,7 @@ func TestChainUnblockerWarpCleanIPAndNoise(t *testing.T) {
 
 	var hop *option.WARPEndpointOptions
 	for _, ep := range options.Endpoints {
-		if ep.Tag == ChainUnblockerTag {
+		if ep.Tag == ChainHopTag(ChainStatusUnblocker, ChainModeWarp) {
 			hop = ep.Options.(*option.WARPEndpointOptions)
 		}
 	}
@@ -139,7 +139,7 @@ func TestChainUnblockerWarpCleanIPAndNoise(t *testing.T) {
 	if !hop.Noise.FakePacket.Enabled || hop.Noise.FakePacket.Mode != "m4" {
 		t.Fatalf("noise not applied: %+v", hop.Noise.FakePacket)
 	}
-	if got := outboundDetour(t, options, "proxy-a"); got != ChainUnblockerTag {
+	if got := outboundDetour(t, options, "proxy-a"); got != ChainHopTag(ChainStatusUnblocker, ChainModeWarp) {
 		t.Fatalf("proxy-a must dial through the unblocker, detour = %q", got)
 	}
 }

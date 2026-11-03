@@ -1,0 +1,67 @@
+name: Validate upstream hiddify-core merge
+
+on:
+  push:
+    branches:
+      - sync/hiddify-upstream-20261102
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Compile merged core, configuration and panel packages
+        run: go test -mod=mod -run '^$' ./v2/config/... ./v2/hcore/...
+
+  panel-compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Fetch overlay and fork source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/SawaMEN/3x-ui.git /tmp/panel
+          git submodule update --init hiddify-sing-box
+          cd hiddify-sing-box
+          echo '=== INDEX OBJECTS IN PATCH ==='
+          git cat-file -e '24490d3^{blob}' && echo 'base blob is available' || echo 'base blob unavailable'
+          echo '=== STRAIGHT APPLY ==='
+          git apply --check /tmp/panel/deploy/hiddify/protection-options.patch || true
+          echo '=== THREE WAY APPLY ==='
+          cd ..
+          python3 tools/rebase-panel-protection.py hiddify-sing-box /tmp/panel/deploy/hiddify/protection-options.patch
+          cd hiddify-sing-box
+          echo '=== STAGED/UNMERGED ==='
+          git status --short | head -80
+          git diff --name-only --diff-filter=U || true
+          git diff --cached --stat || true
+          echo '=== EXPLICIT CIPHER PATCH AFTER PROTECTION ==='
+          git apply --3way --index /tmp/panel/deploy/hiddify/explicit-cipher-suites.patch || true
+          git status --short | head -80
+          git diff --name-only --diff-filter=U || true
+          for f in common/tls/std_server.go common/tls/std_client.go common/tls/utls_client.go; do
+            echo "----- $f -----"
+            git --no-pager diff --cc -- "$f" | head -200 || true
+          done
+          echo '=== THREE-WAY OVERLAP DETAILS ==='
+          for f in common/tls/reality_client.go option/tls.go protocol/vless/outbound.go; do
+            echo "----- $f -----"
+            git --no-pager diff --cc -- "$f" | head -240 || true
+          done

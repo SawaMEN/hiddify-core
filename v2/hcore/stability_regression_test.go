@@ -53,7 +53,7 @@ func TestCancelledStartup(t *testing.T) {
 	if err == nil {
 		t.Fatal("cancelled startup succeeded")
 	}
-	if coreState() != CoreStates_STOPPED {
+	if currentCoreState() != CoreStates_STOPPED {
 		t.Fatal("cancelled startup left busy state")
 	}
 }

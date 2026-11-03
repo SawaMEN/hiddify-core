@@ -54,7 +54,7 @@ func (h *HiddifyInstance) readStatus(prev *SystemInfo) *SystemInfo {
 			// if message.CurrentOutbound == config.OutboundURLTestTag {
 			if currentOutBound, ok := box.Outbound().Outbound(current); ok {
 				if g, ok := currentOutBound.(adapter.OutboundGroup); ok {
-					if now := groupNow(g); now != "" {
+					if now := connectedVia(g); now != "" {
 						message.CurrentOutbound = fmt.Sprint(message.CurrentOutbound, "→", TrimTagName(now))
 					}
 				}
@@ -281,14 +281,9 @@ func (h *HiddifyInstance) UrlTestActive() (*hcommon.Response, error) {
 				Message: E.New("outbound not found in selector: ", config.OutboundSelectTag).Error(),
 			}, E.New("outbound not found in selector: ", config.OutboundSelectTag)
 		}
-		if outboundGroupInner, isLoaded := box.Outbound().Outbound(now); isLoaded {
-			if grp, isgrp := outboundGroupInner.(adapter.OutboundGroup); isgrp {
-				if n2 := groupNow(grp); n2 != "" {
-					now = n2
-				}
-			}
-
-		}
+		// Descend to the outbound that actually carries traffic: the ping under the connect
+		// button re-tests the config the user is connected to, not every config in its group.
+		now = resolveActiveOutbound(box, now, h.UrlTestHistory())
 		return h.UrlTest(&UrlTestRequest{
 			Tag: now,
 		})

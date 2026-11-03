@@ -38,6 +38,8 @@ const (
 	// all DNS rules and the DNS final use these
 	DNSMultiDirectTag = "dns-direct-group"
 	DNSMultiRemoteTag = "dns-remote-group"
+	// DoH through the profile alone, past the extra security hop: the remote group's last resort
+	DNSRemoteViaProfileTag = "dns-remote-via-profile"
 
 	OutboundDirectTag = "direct §hide§"
 	OutboundBypassTag = "bypass §hide§"
@@ -299,6 +301,13 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 	if err := setChainHop(opt, &outbounds, &endpoints); err != nil {
 		return err
 	}
+	fitWireGuardInWireGuard(endpoints)
+	warpBehindDetour(outbounds, endpoints)
+	systemEngine := ""
+	if opt.UseSystemTLSEngine == nil || *opt.UseSystemTLSEngine {
+		systemEngine = usableTLSEngine()
+	}
+	chooseTLSEngines(outbounds, systemEngine)
 	if len(opt.ConnectionTestUrls) == 0 {
 		opt.ConnectionTestUrls = []string{opt.ConnectionTestUrl, "https://www.google.com/generate_204", "http://captive.apple.com/generate_204", "https://cp.cloudflare.com"}
 		if isBlockedConnectionTestUrl(opt.ConnectionTestUrl) {
@@ -330,7 +339,8 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 			// URLs:      opt.ConnectionTestUrls,
 			// Interval:  badoption.Duration(opt.URLTestInterval.Duration()),
 			// IdleTimeout: badoption.Duration(opt.URLTestIdleTimeout.Duration()),
-			Tolerance: 1,
+			Tolerance:      100,
+			ToleranceRatio: 0.1,
 			// IdleTimeout:               badoption.Duration(opt.URLTestInterval.Duration().Nanoseconds() * 3),
 			InterruptExistConnections: true,
 		},
@@ -347,7 +357,8 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 			// URLs:      opt.ConnectionTestUrls,
 			// Interval:  badoption.Duration(opt.URLTestInterval.Duration()),
 			// IdleTimeout: badoption.Duration(opt.URLTestIdleTimeout.Duration()),
-			Tolerance: 1,
+			Tolerance:      100,
+			ToleranceRatio: 0.1,
 			// IdleTimeout:               badoption.Duration(opt.URLTestInterval.Duration().Nanoseconds() * 3),
 			InterruptExistConnections: true,
 		},
@@ -411,11 +422,11 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 						AbstractDialerOptions: option.AbstractDialerOptions{
 							TCPFastOpen: false,
 						},
-						// TLSFragment: option.TLSFragmentOptions{
-						// 	Enabled: true,
-						// 	Size:    opt.TLSTricks.FragmentSize,
-						// 	Sleep:   opt.TLSTricks.FragmentSleep,
-						// }
+						TLSFragment: option.TLSFragmentOptions{
+							Enabled: true,
+							Size:    opt.TLSTricks.FragmentSize,
+							Sleep:   opt.TLSTricks.FragmentSleep,
+						},
 					},
 				},
 			},
@@ -460,13 +471,13 @@ func setExperimental(options *option.Options, hopt *HiddifyOptions) {
 			ClashAPI: &option.ClashAPIOptions{Secret: hopt.ClashApiSecret},
 
 			CacheFile: &option.CacheFileOptions{
-				Enabled:         true,
-				StoreWARPConfig: true,
-				Path:            "data/clash.db",
+				Enabled: true, // WARP and MASQUE devices are stored by default
+				Path:    "data/clash.db",
 			},
 
 			Monitoring: &option.MonitoringOptions{
 				URLs:           hopt.ConnectionTestUrls,
+				IpInfoURL:      hopt.IpInfoUrl,
 				Interval:       badoption.Duration(hopt.URLTestInterval.Duration()),
 				DebounceWindow: badoption.Duration(time.Millisecond * 500),
 				IdleTimeout:    badoption.Duration(hopt.URLTestInterval.Duration().Nanoseconds() * 3),
@@ -495,8 +506,29 @@ func isIPv6Supported() bool {
 	return err == nil
 }
 
-func shouldEnableIPv6(mode option.DomainStrategy) bool {
-	return ipv6EnabledFor(mode, isIPv6Supported())
+// dnsStrategy is the strategy of a DNS rule: the explicit setting when there is one, else what
+// the IPv6 mode asks. Neither ever becomes ipv4_only or ipv6_only: the core's own lookups then
+// favour one family, but a client still gets both A and AAAA, and a config whose server has only
+// the other family still routes (hiddify-app #2307, #2420 are about IPv6-first sites on proxies
+// without IPv6; the mode used to reach only the local listeners).
+func dnsStrategy(explicit, ipv6Mode option.DomainStrategy) option.DomainStrategy {
+	strategy := explicit
+	if strategy == option.DomainStrategy(C.DomainStrategyAsIS) {
+		strategy = ipv6Mode
+	}
+	switch strategy {
+	case option.DomainStrategy(C.DomainStrategyIPv4Only):
+		return option.DomainStrategy(C.DomainStrategyPreferIPv4)
+	case option.DomainStrategy(C.DomainStrategyIPv6Only):
+		return option.DomainStrategy(C.DomainStrategyPreferIPv6)
+	}
+	return strategy
+}
+
+// shouldEnableIPv6 says whether the local listeners also bind IPv6: whenever the host has it. The
+// IPv6 mode is a preference between the families, never a switch; it used to leave ::1 unbound.
+func shouldEnableIPv6() bool {
+	return isIPv6Supported()
 }
 
 func ipv6EnabledFor(mode option.DomainStrategy, hostSupportsIPv6 bool) bool {
@@ -522,7 +554,7 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
 	// } else {
 	// 	inboundDomainStrategy = opt.IPv6Mode
 	// }
-	ipv6Enable := shouldEnableIPv6(hopt.IPv6Mode)
+	ipv6Enable := ipv6EnabledFor(hopt.IPv6Mode, shouldEnableIPv6())
 	if hopt.EnableTun {
 
 		opts := option.TunInboundOptions{
@@ -734,7 +766,20 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 			},
 		},
 	})
-
+	// An IPv6 connection that still comes while the proxy in use cannot carry IPv6 (a literal
+	// address, an answer cached before the probe) is refused at once, so the client falls back to
+	// IPv4 instead of being accepted and then closed by the proxy. The TUN keeps ::/0, so
+	// nothing leaks, and an outbound with IPv6, or not probed yet, is never refused.
+	routeRules = append(routeRules, option.Rule{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultRule{
+			RawDefaultRule: option.RawDefaultRule{IPVersion: 6, IPv6UnavailableVia: OutboundMainDetour},
+			RuleAction: option.RuleAction{
+				Action:        C.RuleActionTypeReject,
+				RejectOptions: option.RejectActionOptions{Method: C.RuleActionRejectMethodDefault},
+			},
+		},
+	})
 	routeRules = append(routeRules, option.Rule{
 		Type: C.RuleTypeDefault,
 
@@ -858,7 +903,7 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 				RouteOptions: option.DNSRouteActionOptions{
 					Server: DNSMultiDirectTag,
 					AbstractDNSRouteActionOptions: option.AbstractDNSRouteActionOptions{
-						Strategy:       hopt.DirectDnsDomainStrategy,
+						Strategy:       dnsStrategy(hopt.DirectDnsDomainStrategy, hopt.IPv6Mode),
 						RewriteTTL:     &DEFAULT_DNS_TTL,
 						DisableCache:   false,
 						BypassIfFailed: false,
@@ -998,7 +1043,7 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 				RouteOptions: option.DNSRouteActionOptions{
 					Server: DNSMultiDirectTag,
 					AbstractDNSRouteActionOptions: option.AbstractDNSRouteActionOptions{
-						Strategy:       hopt.DirectDnsDomainStrategy,
+						Strategy:       dnsStrategy(hopt.DirectDnsDomainStrategy, hopt.IPv6Mode),
 						RewriteTTL:     &DEFAULT_DNS_TTL,
 						BypassIfFailed: false,
 					},
@@ -1032,7 +1077,7 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 				RouteOptions: option.DNSRouteActionOptions{
 					Server: DNSMultiDirectTag,
 					AbstractDNSRouteActionOptions: option.AbstractDNSRouteActionOptions{
-						Strategy:       hopt.DirectDnsDomainStrategy,
+						Strategy:       dnsStrategy(hopt.DirectDnsDomainStrategy, hopt.IPv6Mode),
 						RewriteTTL:     &DEFAULT_DNS_TTL,
 						BypassIfFailed: false,
 					},
@@ -1101,7 +1146,7 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 		AutoDetectInterface: (!C.IsAndroid && !C.IsIos) && (hopt.EnableTun || hopt.EnableTunService),
 		DefaultDomainResolver: &option.DomainResolveOptions{
 			Server:   DNSMultiDirectTag,
-			Strategy: hopt.DirectDnsDomainStrategy,
+			Strategy: dnsStrategy(hopt.DirectDnsDomainStrategy, hopt.IPv6Mode),
 		},
 		// OverrideAndroidVPN: hopt.EnableTun && C.IsAndroid,
 		RuleSet:     rulesets,
@@ -1136,7 +1181,8 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 					RouteOptions: option.DNSRouteActionOptions{
 						Server: DNSFakeTag,
 						AbstractDNSRouteActionOptions: option.AbstractDNSRouteActionOptions{
-							Strategy:       hopt.RemoteDnsDomainStrategy,
+							Strategy:       dnsStrategy(hopt.RemoteDnsDomainStrategy, hopt.IPv6Mode),
+							IPv6ByOutbound: OutboundMainDetour,
 							RewriteTTL:     &DEFAULT_DNS_TTL,
 							DisableCache:   true,
 							BypassIfFailed: false,
@@ -1154,7 +1200,9 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 			RouteOptions: option.DNSRouteActionOptions{
 				Server: DNSMultiRemoteTag,
 				AbstractDNSRouteActionOptions: option.AbstractDNSRouteActionOptions{
-					Strategy:       hopt.RemoteDnsDomainStrategy,
+					Strategy: dnsStrategy(hopt.RemoteDnsDomainStrategy, hopt.IPv6Mode),
+					// no AAAA while the proxy in use cannot carry IPv6 (hiddify-app #2307, #2420)
+					IPv6ByOutbound: OutboundMainDetour,
 					RewriteTTL:     &DEFAULT_DNS_TTL,
 					BypassIfFailed: false,
 				},
@@ -1168,7 +1216,7 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 	// 		Action: C.RuleActionTypeRoute,
 	// 		RouteOptions: option.DNSRouteActionOptions{
 	// 			Server:         DNSRemoteTagFallback,
-	// 			Strategy:       hopt.RemoteDnsDomainStrategy,
+	// 			Strategy:       dnsStrategy(hopt.RemoteDnsDomainStrategy, hopt.IPv6Mode),
 	// 			RewriteTTL:     &DEFAULT_DNS_TTL,
 	// 			BypassIfFailed: false,
 	// 		},

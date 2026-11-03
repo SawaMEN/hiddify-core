@@ -79,6 +79,12 @@ def merge_go_modules():
         rhs = new["Path"] + (("@" + new["Version"]) if new.get("Version") else "")
         run("go", "mod", "edit", f"-replace={lhs}={rhs}")
     print(f"Preserved {len(added)} fork-only module requirements and {len(fork.get('Replace',[]))} replacements")
+    # Hiddify 5.5 upstream expects a MasterDnsVPN source module that was added
+    # only to its own sing-box fork. Do not keep an invalid local replacement
+    # when preserving SawaMEN's pinned, independently maintained fork.
+    # Once the custom fork integrates MasterDnsVPN, this guard can be removed.
+    run("go", "mod", "edit", "-dropreplace=masterdnsvpn-go")
+    run("go", "mod", "edit", "-droprequire=masterdnsvpn-go")
     # Keep valid checksums from both upstream and the custom fork; go mod tidy
     # normalizes this after exact dependency selection.
     sums = set()

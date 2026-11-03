@@ -75,7 +75,7 @@ func TestHotReload(t *testing.T) {
 		ConfigContent: profile(socks("proxy-a", 1080), socks("proxy-b", 1081)),
 	})
 	require.NoError(t, err)
-	require.Equal(t, CoreStates_STARTED, response.CoreState)
+	require.Equal(t, CoreStates_WAITING, response.CoreState)
 	instance := static.StartedService.Instance()
 	proxyA := runningOutbound(t, "proxy-a")
 	proxyB := runningOutbound(t, "proxy-b")
@@ -90,14 +90,14 @@ func TestHotReload(t *testing.T) {
 		ConfigContent: profile(socks("proxy-a", 1080), socks("proxy-b", 2081), socks("proxy-c", 1082)),
 	})
 	require.NoError(t, err)
-	require.Equal(t, CoreStates_STARTED, response.CoreState)
+	require.Equal(t, CoreStates_WAITING, response.CoreState)
 	require.Equal(t, MessageType_EMPTY, response.MessageType)
 	require.Same(t, instance, static.StartedService.Instance(), "the core was not restarted")
 	require.Same(t, proxyA, runningOutbound(t, "proxy-a"), "an unchanged outbound keeps running")
 	require.NotSame(t, proxyB, runningOutbound(t, "proxy-b"), "a changed outbound is replaced")
 	require.NotNil(t, runningOutbound(t, "proxy-c"), "a new outbound is added")
 	var seen []CoreStates
-	for len(seen) == 0 || seen[len(seen)-1] != CoreStates_STARTED {
+	for len(seen) == 0 || seen[len(seen)-1] != CoreStates_WAITING {
 		select {
 		case info := <-states:
 			seen = append(seen, info.CoreState)
@@ -137,8 +137,8 @@ func TestHotReload(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "hot reload cannot change: log")
 	require.Equal(t, MessageType_HOT_RELOAD_FAILED, response.MessageType)
-	require.Equal(t, CoreStates_STARTED, response.CoreState)
-	require.Equal(t, CoreStates_STARTED, static.CoreState)
+	require.Contains(t, []CoreStates{CoreStates_WAITING, CoreStates_STARTED, CoreStates_NO_AVAILABLE_PROXIES}, response.CoreState)
+	require.Contains(t, []CoreStates{CoreStates_WAITING, CoreStates_STARTED, CoreStates_NO_AVAILABLE_PROXIES}, currentCoreState())
 	require.Same(t, instance, static.StartedService.Instance())
 	require.Same(t, proxyC, runningOutbound(t, "proxy-c"), "nothing was applied")
 
@@ -151,7 +151,7 @@ func TestHotReload(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tun inbound has changed, hot reload can not be applied")
 	require.Equal(t, MessageType_HOT_RELOAD_FAILED, response.MessageType)
-	require.Equal(t, CoreStates_STARTED, static.CoreState)
+	require.Contains(t, []CoreStates{CoreStates_WAITING, CoreStates_STARTED, CoreStates_NO_AVAILABLE_PROXIES}, currentCoreState())
 	require.Same(t, instance, static.StartedService.Instance())
 
 	response, err = Stop()

@@ -6,7 +6,6 @@ import (
 	"github.com/hiddify/hiddify-core/v2/config"
 	"github.com/sagernet/sing-box/experimental/libbox"
 	"net"
-	"runtime"
 	"syscall"
 	"testing"
 	"time"
@@ -86,35 +85,17 @@ func TestStartupRequestCancellationDoesNotStopSuccessfulService(t *testing.T) {
 
 func TestQueuedRestartInvalidatedByStop(t *testing.T) {
 	static.lock.Lock()
-	locked := true
-	defer func() {
-		if locked {
-			static.lock.Unlock()
-		}
-	}()
-	before := static.startEpoch.Load()
-	result := make(chan error, 1)
-	go func() {
-		_, err := Restart(context.Background(), &StartRequest{ConfigContent: `{}`})
-		result <- err
-	}()
-	deadline := time.After(time.Second)
-	for static.startEpoch.Load() == before {
-		select {
-		case <-deadline:
-			t.Fatal("restart did not reserve its generation")
-		default:
-			runtime.Gosched()
-		}
-	}
-	// Stop invalidates startup before waiting for the lifecycle lock.
-	cancelStart()
+	queue.Lock()
+	result := queueRestartLocked(context.Background(), &StartRequest{ConfigContent: `{}`})
+	// This is the same stop signal the public Stop operation sends before it
+	// waits for the lifecycle lock. The restart must not start after it.
+	signalStopLocked()
+	queue.Unlock()
 	static.lock.Unlock()
-	locked = false
 	select {
-	case err := <-result:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("invalidated restart returned %v", err)
+	case outcome := <-result:
+		if !errors.Is(outcome.err, errStopped) {
+			t.Fatalf("invalidated restart returned %v", outcome.err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("invalidated restart remained blocked")

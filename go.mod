@@ -7,6 +7,7 @@ go 1.27.3
 godebug multipathtcp=0
 
 require (
+	masterdnsvpn-go v0.0.0 // indirect
 	github.com/bepass-org/warp-plus v1.2.6
 	github.com/coder/websocket v1.8.14
 	github.com/google/uuid v1.6.0
@@ -395,6 +396,7 @@ replace github.com/ameshkov/dnscrypt/v2 => github.com/shtorm-7/dnscrypt/v2 v2.4.
 
 replace github.com/hiddify/ray2sing => ./ray2sing
 
+replace masterdnsvpn-go => ./hiddify-sing-box/replace/MasterDnsVPN
 replace github.com/sagernet/sing-box => ./hiddify-sing-box
 
 replace github.com/sagernet/sing-vmess => ./hiddify-sing-box/replace/sing-vmess

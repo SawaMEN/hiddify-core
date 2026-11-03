@@ -1,0 +1,35 @@
+name: Validate Hiddify 5.5.0 fork compatibility
+
+on:
+  push:
+    branches: [sync/upstream-v5.5.0]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check pinned upstream-compatible submodules
+        run: |
+          git submodule status --recursive
+          test -f hiddify-sing-box/replace/MasterDnsVPN/go.mod
+      - name: Normalize and validate custom Go module graph
+        run: |
+          go mod tidy
+          go list -m all > /dev/null
+      - name: Compile config and core with native tags
+        run: |
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go test -run '^$' -ldflags=-checklinkname=0 -tags "$tags" ./v2/... ./platform/mobile

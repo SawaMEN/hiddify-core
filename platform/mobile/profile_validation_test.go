@@ -31,6 +31,13 @@ func TestValidateProfileAcceptedShapes(t *testing.T) {
 	}
 }
 
+func TestValidateProfileRespectsExplicitFullConfigMode(t *testing.T) {
+	registerValidation(t, "full-mode")
+	if err := ValidateProfile("full-mode", `[{"type":"direct","tag":"direct"}]`, `{"enable-full-config":true}`); err == nil {
+		t.Fatal("full-config mode accepted a configuration array")
+	}
+}
+
 func TestValidateProfileRejectsInvalidSourceAndSettings(t *testing.T) {
 	registerValidation(t, "invalid-source")
 	for _, content := range []string{"", "not a configuration", `{"type":"direct"} {"type":"direct"}`, strings.Repeat("x", config.MaxConfigBytes+1)} {

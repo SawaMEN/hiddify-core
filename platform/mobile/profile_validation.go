@@ -87,7 +87,8 @@ func ValidateProfile(id, content, settingsJSON string) (err error) {
 			return err
 		}
 	}
-	_, err = config.ParseConfig(session.ctx, &config.ReadOptions{Content: content}, false, options, true)
+	// Validate subscription shapes normally; only the explicit user option selects raw mode.
+	_, err = config.ParseConfig(session.ctx, &config.ReadOptions{Content: content}, false, options, false)
 	if cancelled := session.ctx.Err(); cancelled != nil {
 		return cancelled
 	}

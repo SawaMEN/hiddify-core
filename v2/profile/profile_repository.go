@@ -12,6 +12,7 @@ import (
 	"github.com/hiddify/hiddify-core/v2/hcommon/request"
 	hcore "github.com/hiddify/hiddify-core/v2/hcore"
 	"github.com/sagernet/sing-box/option"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -369,13 +370,13 @@ func UpdateSubscription(baseProfile *ProfileEntity, patchBaseProfile bool) error
 		return fmt.Errorf("error updating profile content: %v", err)
 	}
 
-	updated := *baseProfile
+	updated := proto.Clone(baseProfile).(*ProfileEntity)
 	updated.LastUpdate = time.Now().UnixMilli()
 	updated.Parse(content.Header)
 	if patchBaseProfile {
-		return Patch(&updated)
+		return Patch(updated)
 	}
-	return UpdateProfile(&updated)
+	return UpdateProfile(updated)
 }
 
 func Patch(profile *ProfileEntity) error {

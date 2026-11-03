@@ -1,3 +1,9 @@
+## (unreleased) Native client compatibility
+
+- Validate imported outbound arrays without forcing full-config mode; explicit raw-config settings remain strict.
+- Align hot-reload and queued-stop regressions with the 5.4 lifecycle contract.
+- Normalize module metadata against the pinned engine and run native API regressions independently of Cronet linkage.
+
 Changelog
 =========
 

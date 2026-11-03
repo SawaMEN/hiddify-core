@@ -143,16 +143,19 @@ func setDns(options *option.Options, opt *HiddifyOptions, staticIps *map[string]
 			},
 			Final: DNSMultiRemoteTag,
 
+			// DNS endpoints are instantiated sequentially. Register bootstrap
+			// resolvers before encrypted servers that refer to them; otherwise
+			// sing-box fails with "domain resolver not found: dns-direct".
 			Servers: []option.DNSServerOptions{
 				*static_dns,
+				*local_dns,
+				*direct_dns,
 				*remote_dns,
 				*remote_dns_fallback,
 				*trick_dns,
-				*direct_dns,
-				*local_dns,
 				*remote_no_warp_dns,
-				*remoteGroup,
 				*directGroup,
+				*remoteGroup,
 				// *multi_dns_direct,
 				// *multi_dns_remote,
 				// *block_dns,

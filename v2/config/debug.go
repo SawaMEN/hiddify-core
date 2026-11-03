@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"time"
 
 	"github.com/sagernet/sing-box/option"
 )
@@ -27,8 +26,7 @@ func SaveCurrentConfig(ctx context.Context, path string, options option.Options)
 
 func DeferPanicToError(name string, err func(error)) {
 	if r := recover(); r != nil {
-		s := fmt.Errorf("%s panic: %s\n%s", name, r, string(debug.Stack()))
+		s := fmt.Errorf("%s panic: %v\n%s", name, r, string(debug.Stack()))
 		err(s)
-		<-time.After(5 * time.Second)
 	}
 }

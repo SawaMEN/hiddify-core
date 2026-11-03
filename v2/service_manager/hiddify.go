@@ -1,6 +1,7 @@
 package service_manager
 
 import (
+	"errors"
 	"github.com/sagernet/sing-box/option"
 )
 
@@ -10,7 +11,7 @@ var (
 )
 
 func RegisterPreService(service HService) {
-	preservices = append(services, service)
+	preservices = append(preservices, service)
 }
 
 func Register(service HService) {
@@ -18,7 +19,9 @@ func Register(service HService) {
 }
 
 func StartServices() error {
-	DisposeServices()
+	if err := DisposeServices(); err != nil {
+		return err
+	}
 	for _, service := range preservices {
 		if err := service.Init(); err != nil {
 			return err
@@ -33,17 +36,18 @@ func StartServices() error {
 }
 
 func DisposeServices() error {
+	var errs []error
 	for _, service := range services {
 		if err := service.Dispose(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 	for _, service := range preservices {
 		if err := service.Dispose(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func OnMainServicePreStart(singconfig *option.Options) error {
@@ -75,15 +79,16 @@ func OnMainServiceStart() error {
 }
 
 func OnMainServiceClose() error {
+	var errs []error
 	for _, service := range preservices {
 		if err := service.OnMainServiceClose(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 	for _, service := range services {
 		if err := service.OnMainServiceClose(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }

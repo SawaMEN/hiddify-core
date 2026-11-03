@@ -18,16 +18,16 @@ import (
 	"github.com/sagernet/sing/service"
 )
 
-// NewService creates the service and starts it. Once [stop] closes, the start in progress is
-// interrupted, so a stop does not wait for a slow start (a download, a handshake) to finish; nil when
-// nothing stops it.
-func NewService(ctx context.Context, options option.Options, stop <-chan struct{}) (*daemon.StartedService, error) {
+func NewService(ctx context.Context, options option.Options) (*daemon.StartedService, error) {
+	return NewServiceWithStartupContext(ctx, ctx, options)
+}
+func NewServiceWithStartupContext(ctx, startupCtx context.Context, options option.Options) (*daemon.StartedService, error) {
 
 	// ctx = filemanager.WithDefault(ctx, sWorkingPath, sTempPath, sUserID, sGroupID)
 	logInterface := LogInterface{}
 	bopts := daemon.ServiceOptions{
 		Context:     ctx,
-		Debug:       static.debug,
+		Debug:       static.debug.Load(),
 		LogMaxLines: 100,
 		// Options:           *options,
 		Handler: &logInterface,
@@ -42,7 +42,7 @@ func NewService(ctx context.Context, options option.Options, stop <-chan struct{
 	}
 	watch.step("checking the config")
 	instance := daemon.NewStartedService(bopts)
-	if stop != nil {
+	if stop := stopSignal(startupCtx); stop != nil {
 		started := make(chan struct{})
 		defer close(started)
 		go func() {
@@ -74,12 +74,12 @@ func NewService(ctx context.Context, options option.Options, stop <-chan struct{
 
 	content, err := json.MarshalContext(ctx, options)
 	if err != nil {
-		closeService(instance)
+		instance.Close()
 		return nil, err
 	}
-	watch.step("encoding the config")
-	if err := instance.StartOrReloadService(ctx, string(content), nil); err != nil {
-		closeService(instance)
+	if err := instance.StartOrReloadService(startupCtx, string(content), nil); err != nil {
+		instance.CloseService()
+		instance.Close()
 		return nil, err
 	}
 	watch.step("starting the inbounds, outbounds and services")
@@ -129,7 +129,9 @@ func (h *HiddifyInstance) Box() *box.Box {
 }
 
 func (h *HiddifyInstance) Instance() *daemon.Instance {
+	h.stateLock.RLock()
 	ss := h.StartedService
+	h.stateLock.RUnlock()
 	if ss == nil {
 		return nil
 	}

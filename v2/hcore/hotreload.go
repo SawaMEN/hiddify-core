@@ -14,7 +14,10 @@ import (
 // HotReload waits for the outcome, unlike Start and Stop: on HOT_RELOAD_FAILED the caller has to
 // restart the core to apply the config.
 func (s *CoreService) HotReload(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
-	return HotReload(static.BaseContext, in)
+	static.stateLock.RLock()
+	baseCtx := static.BaseContext
+	static.stateLock.RUnlock()
+	return HotReload(baseCtx, in)
 }
 
 // HotReload applies the request's config to the running core without restarting it, or starts

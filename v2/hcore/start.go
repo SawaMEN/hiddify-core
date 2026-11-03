@@ -149,6 +149,15 @@ func loadLastStartRequestIfNeeded(in *StartRequest) (*StartRequest, error) {
 	}, nil
 }
 
+// noConfigPersistenceKey is a per-start capability for native macOS Network Extensions.
+// A start with this context never stores a credential-bearing config on disk.
+type noConfigPersistenceKey struct{}
+
+// StartServiceWithoutConfigPersistence starts the same core, without retaining the raw profile.
+func StartServiceWithoutConfigPersistence(ctx context.Context, in *StartRequest) (*CoreInfoResponse, error) {
+	return StartService(context.WithValue(ctx, noConfigPersistenceKey{}, true), in)
+}
+
 // startServiceLocked starts the core; static.lock must be held.
 func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *CoreInfoResponse, err error) {
 	if currentCoreState() != CoreStates_STOPPED {
@@ -185,7 +194,9 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 	if err := contextErr(ctx); err != nil {
 		return cancelledStart(err)
 	}
-	saveLastStartRequest(in)
+	if ctx.Value(noConfigPersistenceKey{}) == nil {
+		saveLastStartRequest(in)
+	}
 
 	Log(LogLevel_DEBUG, LogType_CORE, "Main Service pre start")
 	if err := service_manager.OnMainServicePreStart(options); err != nil {
@@ -198,8 +209,10 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 	currentBuildConfigPath := filepath.Join(sWorkingPath, "data/current-config.json")
 	Log(LogLevel_DEBUG, LogType_CORE, "Saving config to ", currentBuildConfigPath)
 
-	config.SaveCurrentConfig(ctx, currentBuildConfigPath, *options)
-	if static.debug {
+	if ctx.Value(noConfigPersistenceKey{}) == nil {
+		config.SaveCurrentConfig(ctx, currentBuildConfigPath, *options)
+	}
+	if static.debug.Load() {
 		pout, err := options.MarshalJSONContext(ctx)
 		if err != nil {
 			return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
@@ -223,7 +236,7 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 	}
 	watch.step("preparing the platform and the delay")
 	libbox.SetMemoryLimit(C.IsIos || !in.DisableMemoryLimit)
-	instance, err := NewService(serviceContext(ctx), *options, stopSignal(ctx))
+	instance, err := NewServiceWithStartupContext(serviceContext(ctx), ctx, *options)
 	watch.step("starting the service")
 	if err != nil && config.AutoRedirectFailed(options, err) {
 		// the system lacks nftables, iptables or the nfqueue module: the TUN works without
@@ -247,7 +260,7 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 		return cancelledStart(err)
 	}
 	static.StartedService = instance
-	if static.debug {
+	if static.debug.Load() {
 		dumpGoroutinesToFile(fmt.Sprint(sWorkingPath, "/data/goroutine-start.log"))
 	}
 	for inb := range options.Inbounds {

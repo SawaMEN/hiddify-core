@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 
@@ -23,15 +24,34 @@ import (
 //go:embed config.json.template
 var configByte []byte
 
+const MaxConfigBytes = 8 * 1024 * 1024
+
 func ReadContent(ctx context.Context, opt *ReadOptions) ([]byte, error) {
-	if opt.Content == "" {
-		contentBytes, err := os.ReadFile(opt.Path)
-		if err != nil {
-			return nil, err
-		}
-		opt.Content = string(contentBytes)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return []byte(opt.Content), nil
+	if opt.Content != "" {
+		if len(opt.Content) > MaxConfigBytes {
+			return nil, fmt.Errorf("configuration exceeds 8 MiB")
+		}
+		return []byte(opt.Content), nil
+	}
+	file, err := os.Open(opt.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, MaxConfigBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > MaxConfigBytes {
+		return nil, fmt.Errorf("configuration exceeds 8 MiB")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return content, nil
 }
 
 func ParseConfig(ctx context.Context, opt *ReadOptions, debug bool, configOpt *HiddifyOptions, fullConfig bool) (*option.Options, error) {
@@ -39,7 +59,7 @@ func ParseConfig(ctx context.Context, opt *ReadOptions, debug bool, configOpt *H
 	if err != nil {
 		return nil, err
 	}
-	return parseConfigContent(ctx, content, debug, nil, false)
+	return parseConfigContent(ctx, content, debug, configOpt, fullConfig)
 }
 
 func ParseConfigBytes(ctx context.Context, opt *ReadOptions, debug bool, configOpt *HiddifyOptions, fullConfig bool) ([]byte, error) {
@@ -57,10 +77,17 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 		configOpt = DefaultHiddifyOptions()
 	}
 
-	// The content is JSON, YAML or text. JSON and YAML are read as sing-box / hiddify-core first, then as Clash,
-	// then as Xray; text is share links.
+	// Keep the fork's panel URI parser, while accepting upstream JSON, YAML,
+	// Clash, Xray JSON, and subscription link representations.
 	var structured any
-	isStructured := json.NewDecoder(SJ.NewCommentFilter(bytes.NewReader(content))).Decode(&structured) == nil
+	decoder := json.NewDecoder(SJ.NewCommentFilter(bytes.NewReader(content)))
+	isStructured := decoder.Decode(&structured) == nil
+	if isStructured {
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			return nil, fmt.Errorf("[SingboxParser] trailing JSON content")
+		}
+	}
 	if !isStructured {
 		var yamlValue any
 		if yaml.Unmarshal(content, &yamlValue) == nil && isYAMLConfig(yamlValue) {
@@ -70,7 +97,6 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 	if !isStructured {
 		return parseShareLinks(ctx, content, configOpt)
 	}
-
 	options, singboxErr := parseSingboxContent(ctx, structured, configOpt, fullConfig)
 	if singboxErr == nil {
 		return options, nil
@@ -79,7 +105,6 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 		return options, err
 	}
 	if links, ok := xrayJSONShareLinks(structured); ok {
-		fmt.Printf("Convert using xray json\n")
 		v2ray, err := ray2sing.Ray2SingboxOptions(ctx, links, configOpt.UseXrayCoreWhenPossible)
 		if err != nil {
 			return nil, fmt.Errorf("[XrayJsonParser] %w", err)
@@ -94,9 +119,15 @@ func parseConfigContent(ctx context.Context, content []byte, debug bool, configO
 
 func parseShareLinks(ctx context.Context, content []byte, configOpt *HiddifyOptions) (*option.Options, error) {
 	content = expandSubscriptionLinks(ctx, content)
+	if links, handled, err := parsePanelLinks(ctx, string(content)); handled {
+		if err != nil {
+			return nil, err
+		}
+		return patchConfigOptions(ctx, links, "PanelShareParser", configOpt)
+	}
 	v2ray, err := ray2sing.Ray2SingboxOptions(ctx, string(content), configOpt.UseXrayCoreWhenPossible)
 	if err != nil {
-		return nil, fmt.Errorf("unable to determine config format")
+		return nil, fmt.Errorf("unable to determine config format: %w", err)
 	}
 	return patchConfigOptions(ctx, v2ray, "V2rayParser", configOpt)
 }
@@ -139,18 +170,15 @@ func parseSingboxContent(ctx context.Context, structured any, configOpt *Hiddify
 			}
 		}
 	} else if jsonArray, ok := structured.([]interface{}); ok {
-		if len(jsonArray) == 0 {
-			return nil, fmt.Errorf("[SingboxParser] no outbounds found")
+		if fullConfig || (configOpt != nil && configOpt.EnableFullConfig) {
+			return nil, fmt.Errorf("[SingboxParser] a configuration array cannot be used in full-config mode")
 		}
-		outbounds := make([]interface{}, 0, len(jsonArray))
-		for i, item := range jsonArray {
-			itemObj, ok := item.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("[SingboxParser] outbound at index %d is %T, expected a json object", i, item)
-			}
-			outbounds = append(outbounds, itemObj)
+		// Distinguish panel subscription arrays of full config objects from
+		// simple outbound arrays. Each full config gets namespaced tags so
+		// that overlapping proxy names and local detour references survive.
+		if err := mergePanelJSONArray(jsonObj, jsonArray); err != nil {
+			return nil, err
 		}
-		jsonObj["outbounds"] = outbounds
 	} else {
 		return nil, fmt.Errorf("[SingboxParser] incorrect json format: expected a json object or an array of outbound objects, got %T", structured)
 	}

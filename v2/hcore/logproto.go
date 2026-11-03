@@ -70,7 +70,9 @@ func (s *CoreService) LogListener(req *LogRequest, stream grpc.ServerStreamingSe
 			if info.Level < req.Level {
 				continue
 			}
-			stream.Send(info)
+			if err := stream.Send(info); err != nil {
+				return err
+			}
 			// case <-time.After(500 * time.Millisecond):
 		}
 	}

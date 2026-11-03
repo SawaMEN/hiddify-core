@@ -59,25 +59,27 @@ func setCoreState(state CoreStates) {
 }
 
 func (s *CoreService) CoreInfoListener(req *hcommon.Empty, stream grpc.ServerStreamingServer[CoreInfoResponse]) error {
-	// Start and Stop answer at once and report through here: the buffer holds a whole burst of
-	// states (STOPPING, STOPPED, STARTING, ...) so none is dropped before it is sent
-	coreSub := static.coreInfoObserver.Subscribe(32)
+	coreSub := static.coreInfoObserver.Subscribe(1)
 	defer static.coreInfoObserver.Unsubscribe(coreSub)
-	stream.Send(&CoreInfoResponse{
+	if err := stream.Send(&CoreInfoResponse{
 		CoreState:   currentCoreState(),
 		MessageType: MessageType_EMPTY,
 		Message:     "",
-	})
+	}); err != nil {
+		return err
+	}
 	for {
 		select {
 		case <-stream.Context().Done():
 			return nil
 		case info := <-coreSub:
-			stream.Send(info)
+			if err := stream.Send(info); err != nil {
+				return err
+			}
 			// case <-time.After(500 * time.Millisecond):
 			// 	// 	info := SetCoreStatus(CoreStates_STOPPED, MessageType_EMPTY, "")
-			// 	stream.Send(&CoreInfoResponse{
-			// 		CoreState:   static.CoreState,
+			// 	if err := stream.Send(&CoreInfoResponse{
+			// 		CoreState:   currentCoreState(),
 			// 		MessageType: MessageType_EMPTY,
 			// 		Message:     "",
 			// 	})

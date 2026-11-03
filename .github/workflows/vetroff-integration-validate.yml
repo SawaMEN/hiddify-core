@@ -1,0 +1,37 @@
+name: Validate VetrOFFProxy core share parser
+
+on:
+  push:
+    branches: [feat/vetroffproxy-client]
+
+permissions:
+  contents: write
+
+jobs:
+  format-and-dependencies:
+    if: github.repository == 'SawaMEN/hiddify-core'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: feat/vetroffproxy-client
+          persist-credentials: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+      - name: Format, resolve dependencies and test link parsing
+        run: |
+          gofmt -w v2/config/paneluri/vetroff.go v2/config/paneluri/vetroff_test.go
+          go mod tidy
+          go test -mod=mod ./v2/config/paneluri
+      - name: Commit validated module metadata
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add v2/config/paneluri/vetroff.go v2/config/paneluri/vetroff_test.go go.mod go.sum
+            git commit -m "build: gofmt and tidy VetrOFFProxy core integration"
+            git push origin HEAD:feat/vetroffproxy-client
+          fi

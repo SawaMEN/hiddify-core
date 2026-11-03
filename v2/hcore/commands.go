@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hiddify/hiddify-core/v2/config"
-	"github.com/hiddify/hiddify-core/v2/db"
 	hcommon "github.com/hiddify/hiddify-core/v2/hcommon"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/wlynxg/anet"
@@ -29,8 +28,12 @@ func (h *HiddifyInstance) readStatus(prev *SystemInfo) *SystemInfo {
 	message.Goroutines = int32(runtime.NumGoroutine())
 	// message.ConnectionsOut = int32(conntrack.Count())
 
-	if ss := h.StartedService; ss != nil {
+	h.stateLock.RLock()
+	ss, request := h.StartedService, h.previousStartRequest
+	h.stateLock.RUnlock()
+	if ss != nil {
 		status := ss.ReadStatus()
+		message.TrafficAvailable = status.TrafficAvailable
 		message.DownlinkTotal = status.DownlinkTotal
 		message.UplinkTotal = status.UplinkTotal
 		message.ConnectionsIn = status.ConnectionsIn
@@ -59,14 +62,8 @@ func (h *HiddifyInstance) readStatus(prev *SystemInfo) *SystemInfo {
 			// }
 		}
 
-		// Always the profile of the current start: the previous cache kept the old name
-		// after a profile switch once more than 1 MB had been sent.
-		message.CurrentProfile = CurrentProfileName()
-		if message.CurrentProfile == "" {
-			settings := db.GetTable[hcommon.AppSettings]()
-			if lastName, err := settings.Get("lastStartRequestName"); err == nil {
-				message.CurrentProfile, _ = lastName.Value.(string)
-			}
+		if request != nil {
+			message.CurrentProfile = request.ConfigName
 		}
 	}
 

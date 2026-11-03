@@ -18,6 +18,7 @@ type SetupOptions struct {
 	Debug           bool
 	Mode            int
 	FixAndroidStack bool
+	MemoryLimit     int64
 }
 
 func Setup(opt *SetupOptions, platformInterface libbox.PlatformInterface) error {
@@ -31,7 +32,7 @@ func Setup(opt *SetupOptions, platformInterface libbox.PlatformInterface) error 
 		Mode:              hcore.SetupMode(opt.Mode),
 		Secret:            opt.Secret,
 		FixAndroidStack:   opt.FixAndroidStack,
-	}, platformInterface)
+	}, platformInterface, opt.MemoryLimit)
 
 	// return hcore.Start(17078)
 }
@@ -65,8 +66,8 @@ func AddGrpcClientPublicKey(clientPublicKey []byte) error {
 	return hcore.AddGrpcClientPublicKey(clientPublicKey)
 }
 
-func Close(mode int) {
-	hcore.Close(hcore.SetupMode(mode))
+func Close(mode int) error {
+	return hcore.Close(hcore.SetupMode(mode))
 }
 
 func Test() string {
@@ -80,3 +81,10 @@ func Pause() {
 func Wake() {
 	hcore.Wake()
 }
+
+// ApplyDevicePrivacy uses the current native preferences for system-started services.
+func ApplyDevicePrivacy(fullTunnel, hideProxy, hideClash, disableSystemProxy, encryptedDNS bool) {
+	hcore.ApplyDevicePrivacy(fullTunnel, hideProxy, hideClash, disableSystemProxy, encryptedDNS)
+}
+
+func ApplyRegionalPrivacy(policyJSON string) error { return hcore.ApplyRegionalPrivacy(policyJSON) }

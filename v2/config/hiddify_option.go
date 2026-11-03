@@ -11,6 +11,30 @@ import (
 )
 
 type HiddifyOptions struct {
+	WifiVPNSharing      bool   `json:"wifi-vpn-sharing,omitempty"`
+	LanSharingPassword  string `json:"lan-sharing-password,omitempty"`
+	HandbookRouting     bool   `json:"handbook-routing,omitempty"`
+	HandbookProxy       bool   `json:"handbook-proxy,omitempty"`
+	HandbookDirect      bool   `json:"handbook-direct,omitempty"`
+	HandbookProxySites  string `json:"handbook-proxy-sites,omitempty"`
+	HandbookDirectSites string `json:"handbook-direct-sites,omitempty"`
+	ModernAllowUDP      bool   `json:"privacy-modern-allow-udp,omitempty"`
+	ModernProtocolsOnly bool   `json:"privacy-modern-protocols-only,omitempty"`
+	AdaptiveNetwork     bool   `json:"adaptive-network,omitempty"`
+
+	PrivacyRussianNetworkBypass bool `json:"privacy-russian-network-bypass,omitempty"`
+
+	PrivacyRoutingMode     string   `json:"privacy-routing-mode,omitempty"`
+	PrivacyDirectPackages  []string `json:"privacy-direct-packages,omitempty"`
+	PrivacyProxyPackages   []string `json:"privacy-proxy-packages,omitempty"`
+	PrivacyDirectDomains   []string `json:"privacy-direct-domains,omitempty"`
+	PrivacyProxyDomains    []string `json:"privacy-proxy-domains,omitempty"`
+	PrivacyRoot            bool     `json:"privacy-root,omitempty"`
+	PrivacyRootExcludeUIDs []uint32 `json:"privacy-root-exclude-uids,omitempty"`
+	PrivacyRootTable       int      `json:"privacy-root-table,omitempty"`
+
+	FullTunnel              bool   `json:"privacy-full-tunnel,omitempty"`
+	DisableLocalProxy       bool   `json:"privacy-hide-local-proxy,omitempty"`
 	EnableFullConfig        bool   `json:"enable-full-config,omitempty" overridable:"true"`
 	LogLevel                string `json:"log-level,omitempty"`
 	LogFile                 string `json:"log-file,omitempty"`
@@ -32,15 +56,15 @@ type HiddifyOptions struct {
 	// GeoSitePath      string      `json:"geosite-path"`
 	Rules []Rule `json:"rules,omitempty" overridable:"true"`
 	// the app's rule list; when set it replaces block-ads, bypass-lan and the region rules
-	RouteRule *RouteRuleOptions `json:"route-rule,omitempty"`
-	Warp      WarpOptions       `json:"warp,omitempty"`
-	Warp2     WarpOptions       `json:"warp2,omitempty"`
-	Mux       MuxOptions        `json:"mux,omitempty" overridable:"true"`
-	TLSTricks TLSTricks         `json:"tls-tricks,omitempty"`
-	EnableNTP bool              `json:"enable-ntp,omitempty"`
-	// UseSystemTLSEngine lets a TLS client without a fingerprint use the system's TLS (Apple, Windows) when it
-	// passed its check on this device; else it gets Chrome's uTLS. On unless false.
+	RouteRule  *RouteRuleOptions  `json:"route-rule,omitempty"`
+	Warp       WarpOptions        `json:"warp,omitempty"`
+	Warp2      WarpOptions        `json:"warp2,omitempty"`
+	Mux        MuxOptions         `json:"mux,omitempty" overridable:"true"`
+	TLSTricks  TLSTricks          `json:"tls-tricks,omitempty"`
+	EnableNTP  bool               `json:"enable-ntp,omitempty"`
+	// Preserve upstream system TLS selection while leaving custom privacy settings intact.
 	UseSystemTLSEngine *bool `json:"use-system-tls-engine,omitempty"`
+	ChainStage *ChainStageOptions `json:"chain-stage,omitempty"`
 
 	DNSOptions
 	InboundOptions

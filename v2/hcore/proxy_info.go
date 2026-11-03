@@ -10,6 +10,7 @@ import (
 	sbox "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/monitoring"
+	C "github.com/sagernet/sing-box/constant"
 	G "github.com/sagernet/sing-box/protocol/group"
 	"github.com/sagernet/sing-box/protocol/group/balancer"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -99,7 +100,7 @@ func (h *HiddifyInstance) GetProxyInfo(url_test_history *adapter.URLTestHistory,
 
 	out.Tag = detour.Tag()
 	out.Type = adapter.DisplayType(detour) // the type, and "Connecting..." while not ready
-	out.Status = Status(detour.Status())
+	out.Status = Status(adapter.OutboundStatus(detour))
 	if group, isGroup := detour.(adapter.OutboundGroup); isGroup {
 		out.IsGroup = true
 		gnow := groupNow(group)
@@ -233,6 +234,17 @@ func (h *HiddifyInstance) GetAllProxiesInfo(hismap map[string]*adapter.URLTestHi
 		if len(group.Items) == 0 {
 			continue
 		}
+		if group.Tag == config.OutboundSelectTag && !onlyGroupitems {
+			showEntryHop(&group, outbounds_converted, func(tag string) string {
+				if out, ok := box.Outbound().Outbound(tag); ok {
+					return C.ProxyDisplayName(out.Type())
+				}
+				if ep, ok := box.Endpoint().Get(tag); ok {
+					return C.ProxyDisplayName(ep.Type())
+				}
+				return TrimTagName(tag)
+			})
+		}
 
 		groups.Items = append(groups.Items, &group)
 
@@ -286,6 +298,27 @@ func chainHop(box *sbox.Box) string {
 	return ""
 }
 
+// showEntryHop exposes the extra-security hop as the active entry of the
+// main selector. A named chain hop can have a mode-specific suffix, so match
+// the prefix instead of the old fixed tag.
+func showEntryHop(group *OutboundGroup, infos map[string]*OutboundInfo, protocolName func(string) string) {
+	var entry *OutboundInfo
+	for tag, candidate := range infos {
+		if config.IsChainExtraSecurityTag(tag) && (entry == nil || tag < entry.Tag) {
+			entry = candidate
+		}
+	}
+	if entry == nil {
+		return
+	}
+	entry.TagDisplay = protocolName(entry.Tag)
+	if selected := infos[group.Selected]; selected != nil {
+		entry.TagDisplay += " → " + selected.TagDisplay
+	}
+	group.Selected = entry.Tag
+	group.Items = append([]*OutboundInfo{entry}, group.Items...)
+}
+
 func TrimTagName(tag string) string {
 	return strings.Trim(strings.Split(tag, "§")[0], " ")
 }
@@ -316,9 +349,9 @@ func (h *HiddifyInstance) AllProxiesInfoStream(stream grpc.ServerStreamingServer
 	keepActive := time.NewTicker(time.Minute)
 	defer keepActive.Stop()
 
-	if err := stream.Send(h.GetAllProxiesInfo(monitor.OutboundsHistory(""), onlyMain)); err != nil {
-		return err
-	}
+		if err := stream.Send(h.GetAllProxiesInfo(monitor.OutboundsHistory(""), onlyMain)); err != nil {
+			return err
+		}
 
 	urltestch, err := h.subscribeAllProxies(stream.Context(), monitor)
 	if err != nil {
@@ -328,7 +361,8 @@ func (h *HiddifyInstance) AllProxiesInfoStream(stream grpc.ServerStreamingServer
 	speedch, unsubscribeSpeedTests := subscribeSpeedTests()
 	defer unsubscribeSpeedTests()
 
-	// Debounce URL-test / traffic bursts; selection events (GroupEvent.Priority) flush at once.
+	// Debounce monitoring bursts. GroupEvent has no priority field in this fork;
+	// preserve ordering and do not rely on a removed upstream event API.
 	const debounceWindow = 1000 * time.Millisecond
 	var (
 		timer   *time.Timer
@@ -371,27 +405,16 @@ func (h *HiddifyInstance) AllProxiesInfoStream(stream grpc.ServerStreamingServer
 			if !ok {
 				return nil
 			}
-			priority := ev.Priority
+			// Consume pending events before arming the debounce timer.
 			for drain := true; drain; {
 				select {
-				case ev2, ok2 := <-urltestch:
-					if !ok2 {
+				case _, ok := <-urltestch:
+					if !ok {
 						return nil
-					}
-					if ev2.Priority {
-						priority = true
 					}
 				default:
 					drain = false
 				}
-			}
-			if priority {
-				stopTimer()
-				if err := send(); err != nil {
-					Log(LogLevel_ERROR, LogType_CORE, "failed to send outbounds info: ", err)
-					return err
-				}
-				continue
 			}
 			if timer == nil {
 				timer = time.NewTimer(debounceWindow)

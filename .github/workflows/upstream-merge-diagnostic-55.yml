@@ -1,0 +1,46 @@
+name: Diagnose upstream 5.5 merge into SawaMEN core
+
+on:
+  push:
+    branches: [sync/upstream-v5.5.0]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  merge-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+      - name: Preview merge with the customized main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          git config user.name "Hiddify upstream sync"
+          git config user.email "sync@users.noreply.github.com"
+          set +e
+          git merge --no-commit --no-ff origin/main >/tmp/merge.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/merge.log
+          if [ "$result" -ne 0 ]; then
+            echo '=== CONFLICTED PATHS ==='
+            git diff --name-only --diff-filter=U
+            echo '=== CONFLICT STATS ==='
+            git diff --cc --stat || true
+            echo '=== CONFLICT MARKERS ==='
+            for path in $(git diff --name-only --diff-filter=U); do
+              echo "----- $path -----"
+              if [ -f "$path" ]; then grep -nE '^(<<<<<<<|=======|>>>>>>>)' "$path" | head -100 || true; fi
+            done
+            exit 1
+          fi
+          echo 'Upstream 5.5 and SawaMEN main merge without conflicts'
+          git status --short

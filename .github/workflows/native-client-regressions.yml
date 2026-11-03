@@ -1,0 +1,45 @@
+name: Native client validation and lifecycle
+
+on:
+  pull_request:
+    paths:
+      - 'platform/mobile/**'
+      - 'v2/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/native-client-regressions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-client-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            hiddify-sing-box/go.sum
+      - name: Download exact selected module graph
+        run: go mod download all
+      - name: Vet native core APIs
+        run: |
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go vet -mod=readonly -tags "$tags" ./v2/...
+      - name: Test native validation and lifecycle with race detection
+        run: |
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go test -mod=readonly -race -ldflags=-checklinkname=0 -tags "$tags" ./v2/... ./platform/mobile

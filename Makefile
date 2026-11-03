@@ -12,6 +12,9 @@ Not available for Windows! use bash in WSL
 endif
 CRONET_GO_VERSION := $(shell cat hiddify-sing-box/.github/CRONET_GO_VERSION)
 TAGS=with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_grpc,with_awg,tfogo_checklinkname0,with_naive_outbound,with_conntrack,with_embedded_tor,with_openvpn,with_openconnect,with_masque
+# API/configuration regressions do not exercise Naive and can run without a Cronet linker.
+NATIVE_TEST_COMMA := ,
+NATIVE_TEST_TAGS=$(filter-out with_naive_outbound,$(subst $(NATIVE_TEST_COMMA), ,$(TAGS)))
 IOS_ADD_TAGS=with_dhcp,with_low_memory,with_purego
 MACOS_ADD_TAGS=with_dhcp
 WINDOWS_ADD_TAGS=with_purego

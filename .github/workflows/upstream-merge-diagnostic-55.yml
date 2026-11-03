@@ -50,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           git submodule sync --recursive
-          git submodule update --init --recursive --depth=1
+          git -c submodule.fetchJobs=6 submodule update --init --recursive --depth=1 --jobs 6
       - name: Regenerate RPC bindings from merged protocol schemas
         shell: bash
         run: |

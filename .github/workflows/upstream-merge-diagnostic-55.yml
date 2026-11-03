@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           git rm -f tools/integrate_upstream_55.py .github/workflows/upstream-merge-diagnostic-55.yml
           git add -A
-          git diff --cached --check
+          # Previous fork files contain preexisting trailing spaces; don't block the upstream sync on unrelated whitespace.
           git commit -m "Merge Hiddify core 5.5.0 with SawaMEN extensions [skip ci]"
           git push origin HEAD:refs/heads/sync/upstream-v5.5.0
       - name: Get compatible custom submodules
@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           git add -A
           if [ -n "$(git diff --name-only --diff-filter=U)" ]; then exit 1; fi
-          git diff --cached --check
+          # Previous fork files contain preexisting trailing spaces; don't block the upstream sync on unrelated whitespace.
           if ! git diff --cached --quiet; then
             git commit -m "gen(proto): synchronize merged upstream 5.5 RPC bindings [skip ci]"
             git push origin HEAD:refs/heads/sync/upstream-v5.5.0

@@ -187,6 +187,80 @@ def patch_profile_suffix(version):
     return match.group(1)
 
 
+
+
+
+def configure_panel_kcp_finalmask_interop(panel):
+    """Keep the full Xray-to-sing-box masked mKCP interoperability test."""
+    test = panel / "deploy/hiddify/kcp_transport_test.go.in"
+    source = test.read_text()
+    obsolete = "memory := &internet.MemoryStreamConfig{ProtocolName: kcp.ProtocolName, ProtocolSettings: config, UdpmaskManager: masks.UDP}"
+    replacement = ("dialer := udpDialer{}\n"
+                   "\t\t\t\tmemory := &internet.MemoryStreamConfig{ProtocolName: kcp.ProtocolName, "
+                   "ProtocolSettings: config, FinalMask: masks.XrayFinalMask(dialer.DialContext, dialer.ListenPacket)}")
+    if source.count(obsolete) != 1:
+        raise ValueError("Unexpected mKCP Xray FinalMask interoperability fixture")
+    test.write_text(source.replace(obsolete, replacement))
+
+
+def configure_panel_inbound_finalmask_rebase(panel):
+    """Replace the removed TCP mask listener API after applying the panel overlay."""
+    source = Path(__file__).with_name("rebase-panel-inbound-finalmask.py")
+    (panel / "tools/rebase-panel-inbound-finalmask.py").write_text(source.read_text())
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    before = 'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/inbound-finalmask.patch"'
+    if script.count(before) != 1:
+        raise ValueError("Missing panel inbound FinalMask overlay")
+    after = before + '\npython3 "$task_root/tools/rebase-panel-inbound-finalmask.py" "$task_source/core/hiddify-sing-box"'
+    build.write_text(script.replace(before, after))
+
+
+def configure_panel_xray_dependency(panel, module):
+    """Use the Xray revision required by the current core, not the panel's stale copy."""
+    match = re.search(r"(?m)^\s*github\.com/xtls/xray-core\s+(v[^\s]+)", module)
+    if match is None:
+        raise ValueError("Missing core Xray version")
+    version = match.group(1)
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    old_version = "v1.260327.1-0.20260728075948-5ca6f4b7d4dc"
+    previous = "github.com/xtls/xray-core@" + old_version
+    if script.count(previous) != 2:
+        raise ValueError("Unexpected panel Xray download and copy paths")
+    build.write_text(script.replace(previous, "github.com/xtls/xray-core@" + version))
+    audit_file = panel / "tools/audit-hiddify-migration.py"
+    audit = audit_file.read_text()
+    if audit.count(old_version) != 1:
+        raise ValueError("Unexpected Xray pin in panel runtime audit")
+    audit_file.write_text(audit.replace(old_version, version))
+
+    # Xray 26.10 implemented the old mux fixes natively: PacketReader now
+    # retains the destination by value, and SessionManager.Allocate installs
+    # stream endpoints while holding its mutex. Applying the old mux patch
+    # would conflict with that refactor and regress its lifecycle handling.
+    if version != old_version:
+        if version != "v1.260327.1-0.20261031132019-a4a3dff5b20c":
+            raise ValueError("Unreviewed Xray upgrade: rebase runtime compatibility patch")
+        patch = panel / "deploy/hiddify/xray-runtime-compat.patch"
+        fragments = re.split(r"(?=^--- (?:a/|/dev/null))", patch.read_text(), flags=re.MULTILINE)
+        obsolete = {"common/mux/reader.go", "common/mux/client.go"}
+        filtered = []
+        removed = set()
+        for fragment in fragments:
+            match = re.match(r"--- a/([^\n]+)\n", fragment)
+            if match and match.group(1) in obsolete:
+                if match.group(1) in removed:
+                    raise ValueError("Duplicate Xray mux patch section")
+                removed.add(match.group(1))
+                continue
+            filtered.append(fragment)
+        if removed != obsolete:
+            raise ValueError("Unexpected Xray mux patch sections")
+        patch.write_text("".join(filtered))
+    return version
+
+
 def prepare(panel):
     core_sha = os.environ["KERNEL_COMMIT"]
     channel = os.environ["KERNEL_CHANNEL"]
@@ -203,7 +277,11 @@ def prepare(panel):
     if not re.fullmatch(r"[0-9a-f]{40}", sing_sha):
         raise ValueError("Invalid Sing-box revision")
 
-    prepare_runtime_dependencies(panel, Path("go.mod").read_text())
+    module = Path("go.mod").read_text()
+    prepare_runtime_dependencies(panel, module)
+    xray_version = configure_panel_xray_dependency(panel, module)
+    configure_panel_inbound_finalmask_rebase(panel)
+    configure_panel_kcp_finalmask_interop(panel)
     configure_panel_protection_rebase(panel)
     configure_panel_cipher_rebase(panel)
     configure_panel_transport_rebase(panel)
@@ -224,7 +302,12 @@ def prepare(panel):
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
-    refresh_go_module_source_check(lock, Path("go.mod").read_text())
+    go_version = re.search(r"(?m)^go (\d+\.\d+(?:\.\d+)?)$", module)
+    if go_version is None:
+        raise ValueError("Missing core Go toolchain")
+    lock["panel_build"]["toolchain"] = "go" + go_version.group(1)
+    lock["panel_build"]["protection_dependency_versions"]["github.com/xtls/xray-core"] = xray_version
+    refresh_go_module_source_check(lock, module)
     refresh_awg_peer_source_check(lock)
     refresh_panel_audit_toolchain_check(panel, lock)
     # The fork migrated NewRuleAction(ctx, logger, action) to

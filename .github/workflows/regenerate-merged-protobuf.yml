@@ -3,7 +3,7 @@ name: Regenerate merged gRPC bindings
 on:
   push:
     branches:
-      - sync/hiddify-upstream-20261102
+      - sync/upstream-v5.5.0
     paths:
       - v2/hcore/hcore.proto
       - v2/hcore/hcore_service.proto
@@ -40,5 +40,5 @@ jobs:
           git add v2/hcore/hcore.pb.go v2/hcore/hcore_service.pb.go v2/hcore/hcore_service_grpc.pb.go
           if ! git diff --cached --quiet; then
             git commit -m "gen(proto): synchronize upstream admin RPC and custom NetworkProbe bindings"
-            git push origin HEAD:refs/heads/sync/hiddify-upstream-20261102
+            git push origin HEAD:refs/heads/sync/upstream-v5.5.0
           fi

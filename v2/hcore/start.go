@@ -186,7 +186,7 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 	}
 
 	watch.step("loading the request")
-	options, err := BuildConfig(ctx, in)
+	options, err := buildRunningConfig(ctx, in)
 	if err != nil {
 		return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
 	}
@@ -238,6 +238,16 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 	libbox.SetMemoryLimit(C.IsIos || !in.DisableMemoryLimit)
 	instance, err := NewServiceWithStartupContext(serviceContext(ctx), ctx, *options)
 	watch.step("starting the service")
+	if err != nil && config.AutoRedirectFailed(options, err) {
+		// the system lacks nftables, iptables or the nfqueue module: the TUN works without
+		// auto_redirect, as it did before, so build the config again and start it once more
+		Log(LogLevel_WARNING, LogType_CORE, "auto-redirect is not available here, starting the TUN without it: ", err.Error())
+		if options, err = buildRunningConfig(ctx, in); err == nil {
+			config.SaveCurrentConfig(ctx, currentBuildConfigPath, *options)
+			instance, err = NewServiceWithStartupContext(serviceContext(ctx), ctx, *options)
+			watch.step("starting the service without auto-redirect")
+		}
+	}
 	if err != nil {
 		watch.done("failed: " + err.Error())
 		return errorWrapper(MessageType_START_SERVICE, err)

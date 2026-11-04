@@ -1011,7 +1011,13 @@ type OutboundInfo struct {
 	Upload                  int64                  `protobuf:"varint,15,opt,name=upload,proto3" json:"upload,omitempty"`
 	Download                int64                  `protobuf:"varint,16,opt,name=download,proto3" json:"download,omitempty"`
 	Detour                  string                 `protobuf:"bytes,17,opt,name=detour,proto3" json:"detour,omitempty"`
-	Status                  Status                 `protobuf:"varint,18,opt,name=status,proto3,enum=hcore.Status" json:"status,omitempty"` // ready / connecting / registering / … (outbound or endpoint)
+	Status                  Status                 `protobuf:"varint,18,opt,name=status,proto3,enum=hcore.Status" json:"status,omitempty"`                                      // ready / connecting / registering / … (outbound or endpoint)
+	UploadSpeed             int64                  `protobuf:"varint,19,opt,name=upload_speed,json=uploadSpeed,proto3" json:"upload_speed,omitempty"`                           // bytes a second the last upload test reached; 0 untested, -1 failed
+	UploadTesting           bool                   `protobuf:"varint,20,opt,name=upload_testing,json=uploadTesting,proto3" json:"upload_testing,omitempty"`                     // an upload test runs through it now
+	DownloadSpeed           int64                  `protobuf:"varint,21,opt,name=download_speed,json=downloadSpeed,proto3" json:"download_speed,omitempty"`                     // bytes a second the last download test reached; 0 untested, -1 failed
+	DownloadTesting         bool                   `protobuf:"varint,22,opt,name=download_testing,json=downloadTesting,proto3" json:"download_testing,omitempty"`               // a download test runs through it now
+	UploadSpeedCached       bool                   `protobuf:"varint,23,opt,name=upload_speed_cached,json=uploadSpeedCached,proto3" json:"upload_speed_cached,omitempty"`       // upload_speed is from an earlier run, kept until a new test
+	DownloadSpeedCached     bool                   `protobuf:"varint,24,opt,name=download_speed_cached,json=downloadSpeedCached,proto3" json:"download_speed_cached,omitempty"` // download_speed is from an earlier run, kept until a new test
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -1170,6 +1176,48 @@ func (x *OutboundInfo) GetStatus() Status {
 		return x.Status
 	}
 	return Status_READY
+}
+
+func (x *OutboundInfo) GetUploadSpeed() int64 {
+	if x != nil {
+		return x.UploadSpeed
+	}
+	return 0
+}
+
+func (x *OutboundInfo) GetUploadTesting() bool {
+	if x != nil {
+		return x.UploadTesting
+	}
+	return false
+}
+
+func (x *OutboundInfo) GetDownloadSpeed() int64 {
+	if x != nil {
+		return x.DownloadSpeed
+	}
+	return 0
+}
+
+func (x *OutboundInfo) GetDownloadTesting() bool {
+	if x != nil {
+		return x.DownloadTesting
+	}
+	return false
+}
+
+func (x *OutboundInfo) GetUploadSpeedCached() bool {
+	if x != nil {
+		return x.UploadSpeedCached
+	}
+	return false
+}
+
+func (x *OutboundInfo) GetDownloadSpeedCached() bool {
+	if x != nil {
+		return x.DownloadSpeedCached
+	}
+	return false
 }
 
 type IpInfo struct {
@@ -2036,6 +2084,58 @@ func (x *UrlTestRequest) GetTag() string {
 	return ""
 }
 
+type SpeedTestRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tag           string                 `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`    // a proxy, or a group: each of its proxies; none: the proxy the selection uses
+	Size          int64                  `protobuf:"varint,2,opt,name=size,proto3" json:"size,omitempty"` // bytes to move through each; 1 MB when 0, at most 50 MB
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpeedTestRequest) Reset() {
+	*x = SpeedTestRequest{}
+	mi := &file_v2_hcore_hcore_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpeedTestRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpeedTestRequest) ProtoMessage() {}
+
+func (x *SpeedTestRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v2_hcore_hcore_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpeedTestRequest.ProtoReflect.Descriptor instead.
+func (*SpeedTestRequest) Descriptor() ([]byte, []int) {
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SpeedTestRequest) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
+}
+
+func (x *SpeedTestRequest) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
 type GenerateWarpConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LicenseKey    string                 `protobuf:"bytes,1,opt,name=license_key,json=licenseKey,proto3" json:"license_key,omitempty"`
@@ -2047,7 +2147,7 @@ type GenerateWarpConfigRequest struct {
 
 func (x *GenerateWarpConfigRequest) Reset() {
 	*x = GenerateWarpConfigRequest{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[20]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2059,7 +2159,7 @@ func (x *GenerateWarpConfigRequest) String() string {
 func (*GenerateWarpConfigRequest) ProtoMessage() {}
 
 func (x *GenerateWarpConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[20]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2072,7 +2172,7 @@ func (x *GenerateWarpConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateWarpConfigRequest.ProtoReflect.Descriptor instead.
 func (*GenerateWarpConfigRequest) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{20}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GenerateWarpConfigRequest) GetLicenseKey() string {
@@ -2105,7 +2205,7 @@ type SetSystemProxyEnabledRequest struct {
 
 func (x *SetSystemProxyEnabledRequest) Reset() {
 	*x = SetSystemProxyEnabledRequest{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[21]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2117,7 +2217,7 @@ func (x *SetSystemProxyEnabledRequest) String() string {
 func (*SetSystemProxyEnabledRequest) ProtoMessage() {}
 
 func (x *SetSystemProxyEnabledRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[21]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2130,7 +2230,7 @@ func (x *SetSystemProxyEnabledRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSystemProxyEnabledRequest.ProtoReflect.Descriptor instead.
 func (*SetSystemProxyEnabledRequest) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{21}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *SetSystemProxyEnabledRequest) GetIsEnabled() bool {
@@ -2152,7 +2252,7 @@ type LogMessage struct {
 
 func (x *LogMessage) Reset() {
 	*x = LogMessage{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[22]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2164,7 +2264,7 @@ func (x *LogMessage) String() string {
 func (*LogMessage) ProtoMessage() {}
 
 func (x *LogMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[22]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2177,7 +2277,7 @@ func (x *LogMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogMessage.ProtoReflect.Descriptor instead.
 func (*LogMessage) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{22}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *LogMessage) GetLevel() LogLevel {
@@ -2217,7 +2317,7 @@ type LogRequest struct {
 
 func (x *LogRequest) Reset() {
 	*x = LogRequest{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[23]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2229,7 +2329,7 @@ func (x *LogRequest) String() string {
 func (*LogRequest) ProtoMessage() {}
 
 func (x *LogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[23]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2242,7 +2342,7 @@ func (x *LogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogRequest.ProtoReflect.Descriptor instead.
 func (*LogRequest) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{23}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *LogRequest) GetLevel() LogLevel {
@@ -2260,7 +2360,7 @@ type StopRequest struct {
 
 func (x *StopRequest) Reset() {
 	*x = StopRequest{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[24]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2272,7 +2372,7 @@ func (x *StopRequest) String() string {
 func (*StopRequest) ProtoMessage() {}
 
 func (x *StopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[24]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2285,7 +2385,7 @@ func (x *StopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
 func (*StopRequest) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{24}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{25}
 }
 
 type CrashReport struct {
@@ -2300,7 +2400,7 @@ type CrashReport struct {
 
 func (x *CrashReport) Reset() {
 	*x = CrashReport{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[25]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2312,7 +2412,7 @@ func (x *CrashReport) String() string {
 func (*CrashReport) ProtoMessage() {}
 
 func (x *CrashReport) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[25]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2325,7 +2425,7 @@ func (x *CrashReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CrashReport.ProtoReflect.Descriptor instead.
 func (*CrashReport) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{25}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CrashReport) GetName() string {
@@ -2365,7 +2465,7 @@ type CrashReportList struct {
 
 func (x *CrashReportList) Reset() {
 	*x = CrashReportList{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[26]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2377,7 +2477,7 @@ func (x *CrashReportList) String() string {
 func (*CrashReportList) ProtoMessage() {}
 
 func (x *CrashReportList) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[26]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2390,7 +2490,7 @@ func (x *CrashReportList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CrashReportList.ProtoReflect.Descriptor instead.
 func (*CrashReportList) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{26}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *CrashReportList) GetReports() []*CrashReport {
@@ -2411,7 +2511,7 @@ type ExportDiagnosticsRequest struct {
 
 func (x *ExportDiagnosticsRequest) Reset() {
 	*x = ExportDiagnosticsRequest{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[27]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2423,7 +2523,7 @@ func (x *ExportDiagnosticsRequest) String() string {
 func (*ExportDiagnosticsRequest) ProtoMessage() {}
 
 func (x *ExportDiagnosticsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[27]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2436,7 +2536,7 @@ func (x *ExportDiagnosticsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportDiagnosticsRequest.ProtoReflect.Descriptor instead.
 func (*ExportDiagnosticsRequest) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{27}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ExportDiagnosticsRequest) GetDestinationPath() string {
@@ -2470,7 +2570,7 @@ type ExportDiagnosticsResponse struct {
 
 func (x *ExportDiagnosticsResponse) Reset() {
 	*x = ExportDiagnosticsResponse{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[28]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2482,7 +2582,7 @@ func (x *ExportDiagnosticsResponse) String() string {
 func (*ExportDiagnosticsResponse) ProtoMessage() {}
 
 func (x *ExportDiagnosticsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[28]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2495,7 +2595,7 @@ func (x *ExportDiagnosticsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportDiagnosticsResponse.ProtoReflect.Descriptor instead.
 func (*ExportDiagnosticsResponse) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{28}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ExportDiagnosticsResponse) GetPath() string {
@@ -2521,7 +2621,7 @@ type LANIPResponse struct {
 
 func (x *LANIPResponse) Reset() {
 	*x = LANIPResponse{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[29]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2533,7 +2633,7 @@ func (x *LANIPResponse) String() string {
 func (*LANIPResponse) ProtoMessage() {}
 
 func (x *LANIPResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[29]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2546,7 +2646,7 @@ func (x *LANIPResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LANIPResponse.ProtoReflect.Descriptor instead.
 func (*LANIPResponse) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{29}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *LANIPResponse) GetIp() string {
@@ -2567,7 +2667,7 @@ type NetworkProbeRequest struct {
 
 func (x *NetworkProbeRequest) Reset() {
 	*x = NetworkProbeRequest{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[30]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2579,7 +2679,7 @@ func (x *NetworkProbeRequest) String() string {
 func (*NetworkProbeRequest) ProtoMessage() {}
 
 func (x *NetworkProbeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[30]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2592,7 +2692,7 @@ func (x *NetworkProbeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkProbeRequest.ProtoReflect.Descriptor instead.
 func (*NetworkProbeRequest) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{30}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *NetworkProbeRequest) GetUrl() string {
@@ -2620,7 +2720,7 @@ type NetworkProbeResponse struct {
 
 func (x *NetworkProbeResponse) Reset() {
 	*x = NetworkProbeResponse{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[31]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2632,7 +2732,7 @@ func (x *NetworkProbeResponse) String() string {
 func (*NetworkProbeResponse) ProtoMessage() {}
 
 func (x *NetworkProbeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[31]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2645,7 +2745,7 @@ func (x *NetworkProbeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkProbeResponse.ProtoReflect.Descriptor instead.
 func (*NetworkProbeResponse) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{31}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *NetworkProbeResponse) GetStatusCode() int32 {
@@ -2680,7 +2780,7 @@ type IsAdminResponse struct {
 
 func (x *IsAdminResponse) Reset() {
 	*x = IsAdminResponse{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[32]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2692,7 +2792,7 @@ func (x *IsAdminResponse) String() string {
 func (*IsAdminResponse) ProtoMessage() {}
 
 func (x *IsAdminResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[32]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2705,7 +2805,7 @@ func (x *IsAdminResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IsAdminResponse.ProtoReflect.Descriptor instead.
 func (*IsAdminResponse) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{32}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *IsAdminResponse) GetIsAdmin() bool {
@@ -2726,7 +2826,7 @@ type AdminNeededProxy struct {
 
 func (x *AdminNeededProxy) Reset() {
 	*x = AdminNeededProxy{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[33]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2738,7 +2838,7 @@ func (x *AdminNeededProxy) String() string {
 func (*AdminNeededProxy) ProtoMessage() {}
 
 func (x *AdminNeededProxy) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[33]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2751,7 +2851,7 @@ func (x *AdminNeededProxy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminNeededProxy.ProtoReflect.Descriptor instead.
 func (*AdminNeededProxy) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{33}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *AdminNeededProxy) GetTag() string {
@@ -2789,7 +2889,7 @@ type NeedAdminBgServiceRequest struct {
 
 func (x *NeedAdminBgServiceRequest) Reset() {
 	*x = NeedAdminBgServiceRequest{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[34]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2801,7 +2901,7 @@ func (x *NeedAdminBgServiceRequest) String() string {
 func (*NeedAdminBgServiceRequest) ProtoMessage() {}
 
 func (x *NeedAdminBgServiceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[34]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2814,7 +2914,7 @@ func (x *NeedAdminBgServiceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NeedAdminBgServiceRequest.ProtoReflect.Descriptor instead.
 func (*NeedAdminBgServiceRequest) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{34}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *NeedAdminBgServiceRequest) GetServiceMode() string {
@@ -2855,7 +2955,7 @@ type NeedAdminBgServiceResponse struct {
 
 func (x *NeedAdminBgServiceResponse) Reset() {
 	*x = NeedAdminBgServiceResponse{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[35]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2867,7 +2967,7 @@ func (x *NeedAdminBgServiceResponse) String() string {
 func (*NeedAdminBgServiceResponse) ProtoMessage() {}
 
 func (x *NeedAdminBgServiceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[35]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2880,7 +2980,7 @@ func (x *NeedAdminBgServiceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NeedAdminBgServiceResponse.ProtoReflect.Descriptor instead.
 func (*NeedAdminBgServiceResponse) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{35}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *NeedAdminBgServiceResponse) GetDecision() AdminBgServiceDecision {
@@ -2914,7 +3014,7 @@ type EnsureAdminBgServiceRequest struct {
 
 func (x *EnsureAdminBgServiceRequest) Reset() {
 	*x = EnsureAdminBgServiceRequest{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[36]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2926,7 +3026,7 @@ func (x *EnsureAdminBgServiceRequest) String() string {
 func (*EnsureAdminBgServiceRequest) ProtoMessage() {}
 
 func (x *EnsureAdminBgServiceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[36]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2939,7 +3039,7 @@ func (x *EnsureAdminBgServiceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureAdminBgServiceRequest.ProtoReflect.Descriptor instead.
 func (*EnsureAdminBgServiceRequest) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{36}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *EnsureAdminBgServiceRequest) GetConfigContent() string {
@@ -3009,7 +3109,7 @@ type EnsureAdminBgServiceEvent struct {
 
 func (x *EnsureAdminBgServiceEvent) Reset() {
 	*x = EnsureAdminBgServiceEvent{}
-	mi := &file_v2_hcore_hcore_proto_msgTypes[37]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3021,7 +3121,7 @@ func (x *EnsureAdminBgServiceEvent) String() string {
 func (*EnsureAdminBgServiceEvent) ProtoMessage() {}
 
 func (x *EnsureAdminBgServiceEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_v2_hcore_hcore_proto_msgTypes[37]
+	mi := &file_v2_hcore_hcore_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3034,7 +3134,7 @@ func (x *EnsureAdminBgServiceEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureAdminBgServiceEvent.ProtoReflect.Descriptor instead.
 func (*EnsureAdminBgServiceEvent) Descriptor() ([]byte, []int) {
-	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{37}
+	return file_v2_hcore_hcore_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *EnsureAdminBgServiceEvent) GetProgress() EnsureAdminBgServiceProgress {
@@ -3107,7 +3207,7 @@ const file_v2_hcore_hcore_proto_rawDesc = "" +
 	"\x0edownlink_total\x18\t \x01(\x03R\rdownlinkTotal\x12)\n" +
 	"\x10current_outbound\x18\n" +
 	" \x01(\tR\x0fcurrentOutbound\x12'\n" +
-	"\x0fcurrent_profile\x18\v \x01(\tR\x0ecurrentProfile\"\xb0\x05\n" +
+	"\x0fcurrent_profile\x18\v \x01(\tR\x0ecurrentProfile\"\xb0\a\n" +
 	"\fOutboundInfo\x12\x10\n" +
 	"\x03tag\x18\x01 \x01(\tR\x03tag\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12>\n" +
@@ -3130,7 +3230,13 @@ const file_v2_hcore_hcore_proto_rawDesc = "" +
 	"\x06upload\x18\x0f \x01(\x03R\x06upload\x12\x1a\n" +
 	"\bdownload\x18\x10 \x01(\x03R\bdownload\x12\x16\n" +
 	"\x06detour\x18\x11 \x01(\tR\x06detour\x12%\n" +
-	"\x06status\x18\x12 \x01(\x0e2\r.hcore.StatusR\x06statusB\t\n" +
+	"\x06status\x18\x12 \x01(\x0e2\r.hcore.StatusR\x06status\x12!\n" +
+	"\fupload_speed\x18\x13 \x01(\x03R\vuploadSpeed\x12%\n" +
+	"\x0eupload_testing\x18\x14 \x01(\bR\ruploadTesting\x12%\n" +
+	"\x0edownload_speed\x18\x15 \x01(\x03R\rdownloadSpeed\x12)\n" +
+	"\x10download_testing\x18\x16 \x01(\bR\x0fdownloadTesting\x12.\n" +
+	"\x13upload_speed_cached\x18\x17 \x01(\bR\x11uploadSpeedCached\x122\n" +
+	"\x15download_speed_cached\x18\x18 \x01(\bR\x13downloadSpeedCachedB\t\n" +
 	"\a_ipinfoB\x15\n" +
 	"\x13_group_selected_tagB\x1d\n" +
 	"\x1b_group_selected_tag_display\"\x88\x02\n" +
@@ -3201,7 +3307,10 @@ const file_v2_hcore_hcore_proto_rawDesc = "" +
 	"\tgroup_tag\x18\x01 \x01(\tR\bgroupTag\x12!\n" +
 	"\foutbound_tag\x18\x02 \x01(\tR\voutboundTag\"\"\n" +
 	"\x0eUrlTestRequest\x12\x10\n" +
-	"\x03tag\x18\x01 \x01(\tR\x03tag\"~\n" +
+	"\x03tag\x18\x01 \x01(\tR\x03tag\"8\n" +
+	"\x10SpeedTestRequest\x12\x10\n" +
+	"\x03tag\x18\x01 \x01(\tR\x03tag\x12\x12\n" +
+	"\x04size\x18\x02 \x01(\x03R\x04size\"~\n" +
 	"\x19GenerateWarpConfigRequest\x12\x1f\n" +
 	"\vlicense_key\x18\x01 \x01(\tR\n" +
 	"licenseKey\x12\x1d\n" +
@@ -3366,7 +3475,7 @@ func file_v2_hcore_hcore_proto_rawDescGZIP() []byte {
 }
 
 var file_v2_hcore_hcore_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_v2_hcore_hcore_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
+var file_v2_hcore_hcore_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_v2_hcore_hcore_proto_goTypes = []any{
 	(CoreStates)(0),                      // 0: hcore.CoreStates
 	(MessageType)(0),                     // 1: hcore.MessageType
@@ -3397,35 +3506,36 @@ var file_v2_hcore_hcore_proto_goTypes = []any{
 	(*GenerateConfigResponse)(nil),       // 26: hcore.GenerateConfigResponse
 	(*SelectOutboundRequest)(nil),        // 27: hcore.SelectOutboundRequest
 	(*UrlTestRequest)(nil),               // 28: hcore.UrlTestRequest
-	(*GenerateWarpConfigRequest)(nil),    // 29: hcore.GenerateWarpConfigRequest
-	(*SetSystemProxyEnabledRequest)(nil), // 30: hcore.SetSystemProxyEnabledRequest
-	(*LogMessage)(nil),                   // 31: hcore.LogMessage
-	(*LogRequest)(nil),                   // 32: hcore.LogRequest
-	(*StopRequest)(nil),                  // 33: hcore.StopRequest
-	(*CrashReport)(nil),                  // 34: hcore.CrashReport
-	(*CrashReportList)(nil),              // 35: hcore.CrashReportList
-	(*ExportDiagnosticsRequest)(nil),     // 36: hcore.ExportDiagnosticsRequest
-	(*ExportDiagnosticsResponse)(nil),    // 37: hcore.ExportDiagnosticsResponse
-	(*LANIPResponse)(nil),                // 38: hcore.LANIPResponse
-	(*NetworkProbeRequest)(nil),          // 39: hcore.NetworkProbeRequest
-	(*NetworkProbeResponse)(nil),         // 40: hcore.NetworkProbeResponse
-	(*IsAdminResponse)(nil),              // 41: hcore.IsAdminResponse
-	(*AdminNeededProxy)(nil),             // 42: hcore.AdminNeededProxy
-	(*NeedAdminBgServiceRequest)(nil),    // 43: hcore.NeedAdminBgServiceRequest
-	(*NeedAdminBgServiceResponse)(nil),   // 44: hcore.NeedAdminBgServiceResponse
-	(*EnsureAdminBgServiceRequest)(nil),  // 45: hcore.EnsureAdminBgServiceRequest
-	(*EnsureAdminBgServiceEvent)(nil),    // 46: hcore.EnsureAdminBgServiceEvent
-	nil,                                  // 47: hcore.ExportDiagnosticsRequest.ExtraFilesEntry
-	nil,                                  // 48: hcore.EnsureAdminBgServiceRequest.ResourcesEntry
-	(*timestamppb.Timestamp)(nil),        // 49: google.protobuf.Timestamp
-	(hcommon.ResponseCode)(0),            // 50: hcommon.ResponseCode
+	(*SpeedTestRequest)(nil),             // 29: hcore.SpeedTestRequest
+	(*GenerateWarpConfigRequest)(nil),    // 30: hcore.GenerateWarpConfigRequest
+	(*SetSystemProxyEnabledRequest)(nil), // 31: hcore.SetSystemProxyEnabledRequest
+	(*LogMessage)(nil),                   // 32: hcore.LogMessage
+	(*LogRequest)(nil),                   // 33: hcore.LogRequest
+	(*StopRequest)(nil),                  // 34: hcore.StopRequest
+	(*CrashReport)(nil),                  // 35: hcore.CrashReport
+	(*CrashReportList)(nil),              // 36: hcore.CrashReportList
+	(*ExportDiagnosticsRequest)(nil),     // 37: hcore.ExportDiagnosticsRequest
+	(*ExportDiagnosticsResponse)(nil),    // 38: hcore.ExportDiagnosticsResponse
+	(*LANIPResponse)(nil),                // 39: hcore.LANIPResponse
+	(*NetworkProbeRequest)(nil),          // 40: hcore.NetworkProbeRequest
+	(*NetworkProbeResponse)(nil),         // 41: hcore.NetworkProbeResponse
+	(*IsAdminResponse)(nil),              // 42: hcore.IsAdminResponse
+	(*AdminNeededProxy)(nil),             // 43: hcore.AdminNeededProxy
+	(*NeedAdminBgServiceRequest)(nil),    // 44: hcore.NeedAdminBgServiceRequest
+	(*NeedAdminBgServiceResponse)(nil),   // 45: hcore.NeedAdminBgServiceResponse
+	(*EnsureAdminBgServiceRequest)(nil),  // 46: hcore.EnsureAdminBgServiceRequest
+	(*EnsureAdminBgServiceEvent)(nil),    // 47: hcore.EnsureAdminBgServiceEvent
+	nil,                                  // 48: hcore.ExportDiagnosticsRequest.ExtraFilesEntry
+	nil,                                  // 49: hcore.EnsureAdminBgServiceRequest.ResourcesEntry
+	(*timestamppb.Timestamp)(nil),        // 50: google.protobuf.Timestamp
+	(hcommon.ResponseCode)(0),            // 51: hcommon.ResponseCode
 }
 var file_v2_hcore_hcore_proto_depIdxs = []int32{
 	0,  // 0: hcore.CoreInfoResponse.core_state:type_name -> hcore.CoreStates
 	1,  // 1: hcore.CoreInfoResponse.message_type:type_name -> hcore.MessageType
 	2,  // 2: hcore.CloseRequest.mode:type_name -> hcore.SetupMode
 	2,  // 3: hcore.SetupRequest.mode:type_name -> hcore.SetupMode
-	49, // 4: hcore.OutboundInfo.url_test_time:type_name -> google.protobuf.Timestamp
+	50, // 4: hcore.OutboundInfo.url_test_time:type_name -> google.protobuf.Timestamp
 	15, // 5: hcore.OutboundInfo.ipinfo:type_name -> hcore.IpInfo
 	3,  // 6: hcore.OutboundInfo.status:type_name -> hcore.Status
 	14, // 7: hcore.OutboundGroup.items:type_name -> hcore.OutboundInfo
@@ -3433,17 +3543,17 @@ var file_v2_hcore_hcore_proto_depIdxs = []int32{
 	14, // 9: hcore.OutboundGroupList.chain_hop:type_name -> hcore.OutboundInfo
 	18, // 10: hcore.WarpGenerationResponse.account:type_name -> hcore.WarpAccount
 	19, // 11: hcore.WarpGenerationResponse.config:type_name -> hcore.WarpWireguardConfig
-	50, // 12: hcore.ParseResponse.response_code:type_name -> hcommon.ResponseCode
+	51, // 12: hcore.ParseResponse.response_code:type_name -> hcommon.ResponseCode
 	4,  // 13: hcore.LogMessage.level:type_name -> hcore.LogLevel
 	5,  // 14: hcore.LogMessage.type:type_name -> hcore.LogType
-	49, // 15: hcore.LogMessage.time:type_name -> google.protobuf.Timestamp
+	50, // 15: hcore.LogMessage.time:type_name -> google.protobuf.Timestamp
 	4,  // 16: hcore.LogRequest.level:type_name -> hcore.LogLevel
-	34, // 17: hcore.CrashReportList.reports:type_name -> hcore.CrashReport
-	47, // 18: hcore.ExportDiagnosticsRequest.extra_files:type_name -> hcore.ExportDiagnosticsRequest.ExtraFilesEntry
+	35, // 17: hcore.CrashReportList.reports:type_name -> hcore.CrashReport
+	48, // 18: hcore.ExportDiagnosticsRequest.extra_files:type_name -> hcore.ExportDiagnosticsRequest.ExtraFilesEntry
 	6,  // 19: hcore.NeedAdminBgServiceRequest.admin_preference:type_name -> hcore.AdminPreference
 	7,  // 20: hcore.NeedAdminBgServiceResponse.decision:type_name -> hcore.AdminBgServiceDecision
-	42, // 21: hcore.NeedAdminBgServiceResponse.admin_needed_proxies:type_name -> hcore.AdminNeededProxy
-	48, // 22: hcore.EnsureAdminBgServiceRequest.resources:type_name -> hcore.EnsureAdminBgServiceRequest.ResourcesEntry
+	43, // 21: hcore.NeedAdminBgServiceResponse.admin_needed_proxies:type_name -> hcore.AdminNeededProxy
+	49, // 22: hcore.EnsureAdminBgServiceRequest.resources:type_name -> hcore.EnsureAdminBgServiceRequest.ResourcesEntry
 	8,  // 23: hcore.EnsureAdminBgServiceEvent.progress:type_name -> hcore.EnsureAdminBgServiceProgress
 	24, // [24:24] is the sub-list for method output_type
 	24, // [24:24] is the sub-list for method input_type
@@ -3465,7 +3575,7 @@ func file_v2_hcore_hcore_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v2_hcore_hcore_proto_rawDesc), len(file_v2_hcore_hcore_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   40,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

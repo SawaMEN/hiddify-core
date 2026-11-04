@@ -25,7 +25,7 @@ var File_v2_hcore_hcore_service_proto protoreflect.FileDescriptor
 
 const file_v2_hcore_hcore_service_proto_rawDesc = "" +
 	"\n" +
-	"\x1cv2/hcore/hcore_service.proto\x12\x05hcore\x1a\x17v2/hcommon/common.proto\x1a\x14v2/hcore/hcore.proto2\x86\x0f\n" +
+	"\x1cv2/hcore/hcore_service.proto\x12\x05hcore\x1a\x17v2/hcommon/common.proto\x1a\x14v2/hcore/hcore.proto2\xb2\x10\n" +
 	"\x04Core\x125\n" +
 	"\x05Start\x12\x13.hcore.StartRequest\x1a\x17.hcore.CoreInfoResponse\x12=\n" +
 	"\x10CoreInfoListener\x12\x0e.hcommon.Empty\x1a\x17.hcore.CoreInfoResponse0\x01\x12;\n" +
@@ -43,7 +43,11 @@ const file_v2_hcore_hcore_service_proto_rawDesc = "" +
 	"\tHotReload\x12\x13.hcore.StartRequest\x1a\x17.hcore.CoreInfoResponse\x12A\n" +
 	"\x0eSelectOutbound\x12\x1c.hcore.SelectOutboundRequest\x1a\x11.hcommon.Response\x123\n" +
 	"\aUrlTest\x12\x15.hcore.UrlTestRequest\x1a\x11.hcommon.Response\x122\n" +
-	"\rUrlTestActive\x12\x0e.hcommon.Empty\x1a\x11.hcommon.Response\x12U\n" +
+	"\rUrlTestActive\x12\x0e.hcommon.Empty\x1a\x11.hcommon.Response\x128\n" +
+	"\n" +
+	"UploadTest\x12\x17.hcore.SpeedTestRequest\x1a\x11.hcommon.Response\x12:\n" +
+	"\fDownloadTest\x12\x17.hcore.SpeedTestRequest\x1a\x11.hcommon.Response\x124\n" +
+	"\x0fClearSpeedTests\x12\x0e.hcommon.Empty\x1a\x11.hcommon.Response\x12U\n" +
 	"\x12GenerateWarpConfig\x12 .hcore.GenerateWarpConfigRequest\x1a\x1d.hcore.WarpGenerationResponse\x12@\n" +
 	"\x14GetSystemProxyStatus\x12\x0e.hcommon.Empty\x1a\x18.hcore.SystemProxyStatus\x12O\n" +
 	"\x15SetSystemProxyEnabled\x12#.hcore.SetSystemProxyEnabledRequest\x1a\x11.hcommon.Response\x125\n" +
@@ -68,31 +72,32 @@ var file_v2_hcore_hcore_service_proto_goTypes = []any{
 	(*GenerateConfigRequest)(nil),        // 5: hcore.GenerateConfigRequest
 	(*SelectOutboundRequest)(nil),        // 6: hcore.SelectOutboundRequest
 	(*UrlTestRequest)(nil),               // 7: hcore.UrlTestRequest
-	(*GenerateWarpConfigRequest)(nil),    // 8: hcore.GenerateWarpConfigRequest
-	(*SetSystemProxyEnabledRequest)(nil), // 9: hcore.SetSystemProxyEnabledRequest
-	(*LogRequest)(nil),                   // 10: hcore.LogRequest
-	(*CloseRequest)(nil),                 // 11: hcore.CloseRequest
-	(*NetworkProbeRequest)(nil),          // 12: hcore.NetworkProbeRequest
-	(*NeedAdminBgServiceRequest)(nil),    // 13: hcore.NeedAdminBgServiceRequest
-	(*EnsureAdminBgServiceRequest)(nil),  // 14: hcore.EnsureAdminBgServiceRequest
-	(*ExportDiagnosticsRequest)(nil),     // 15: hcore.ExportDiagnosticsRequest
-	(*CoreInfoResponse)(nil),             // 16: hcore.CoreInfoResponse
-	(*OutboundGroupList)(nil),            // 17: hcore.OutboundGroupList
-	(*SystemInfo)(nil),                   // 18: hcore.SystemInfo
-	(*hcommon.Response)(nil),             // 19: hcommon.Response
-	(*ParseResponse)(nil),                // 20: hcore.ParseResponse
-	(*GenerateConfigResponse)(nil),       // 21: hcore.GenerateConfigResponse
-	(*WarpGenerationResponse)(nil),       // 22: hcore.WarpGenerationResponse
-	(*SystemProxyStatus)(nil),            // 23: hcore.SystemProxyStatus
-	(*LogMessage)(nil),                   // 24: hcore.LogMessage
-	(*NetworkProbeResponse)(nil),         // 25: hcore.NetworkProbeResponse
-	(*IpInfo)(nil),                       // 26: hcore.IpInfo
-	(*LANIPResponse)(nil),                // 27: hcore.LANIPResponse
-	(*IsAdminResponse)(nil),              // 28: hcore.IsAdminResponse
-	(*NeedAdminBgServiceResponse)(nil),   // 29: hcore.NeedAdminBgServiceResponse
-	(*EnsureAdminBgServiceEvent)(nil),    // 30: hcore.EnsureAdminBgServiceEvent
-	(*CrashReportList)(nil),              // 31: hcore.CrashReportList
-	(*ExportDiagnosticsResponse)(nil),    // 32: hcore.ExportDiagnosticsResponse
+	(*SpeedTestRequest)(nil),             // 8: hcore.SpeedTestRequest
+	(*GenerateWarpConfigRequest)(nil),    // 9: hcore.GenerateWarpConfigRequest
+	(*SetSystemProxyEnabledRequest)(nil), // 10: hcore.SetSystemProxyEnabledRequest
+	(*LogRequest)(nil),                   // 11: hcore.LogRequest
+	(*CloseRequest)(nil),                 // 12: hcore.CloseRequest
+	(*NetworkProbeRequest)(nil),          // 13: hcore.NetworkProbeRequest
+	(*NeedAdminBgServiceRequest)(nil),    // 14: hcore.NeedAdminBgServiceRequest
+	(*EnsureAdminBgServiceRequest)(nil),  // 15: hcore.EnsureAdminBgServiceRequest
+	(*ExportDiagnosticsRequest)(nil),     // 16: hcore.ExportDiagnosticsRequest
+	(*CoreInfoResponse)(nil),             // 17: hcore.CoreInfoResponse
+	(*OutboundGroupList)(nil),            // 18: hcore.OutboundGroupList
+	(*SystemInfo)(nil),                   // 19: hcore.SystemInfo
+	(*hcommon.Response)(nil),             // 20: hcommon.Response
+	(*ParseResponse)(nil),                // 21: hcore.ParseResponse
+	(*GenerateConfigResponse)(nil),       // 22: hcore.GenerateConfigResponse
+	(*WarpGenerationResponse)(nil),       // 23: hcore.WarpGenerationResponse
+	(*SystemProxyStatus)(nil),            // 24: hcore.SystemProxyStatus
+	(*LogMessage)(nil),                   // 25: hcore.LogMessage
+	(*NetworkProbeResponse)(nil),         // 26: hcore.NetworkProbeResponse
+	(*IpInfo)(nil),                       // 27: hcore.IpInfo
+	(*LANIPResponse)(nil),                // 28: hcore.LANIPResponse
+	(*IsAdminResponse)(nil),              // 29: hcore.IsAdminResponse
+	(*NeedAdminBgServiceResponse)(nil),   // 30: hcore.NeedAdminBgServiceResponse
+	(*EnsureAdminBgServiceEvent)(nil),    // 31: hcore.EnsureAdminBgServiceEvent
+	(*CrashReportList)(nil),              // 32: hcore.CrashReportList
+	(*ExportDiagnosticsResponse)(nil),    // 33: hcore.ExportDiagnosticsResponse
 }
 var file_v2_hcore_hcore_service_proto_depIdxs = []int32{
 	0,  // 0: hcore.Core.Start:input_type -> hcore.StartRequest
@@ -112,51 +117,57 @@ var file_v2_hcore_hcore_service_proto_depIdxs = []int32{
 	6,  // 14: hcore.Core.SelectOutbound:input_type -> hcore.SelectOutboundRequest
 	7,  // 15: hcore.Core.UrlTest:input_type -> hcore.UrlTestRequest
 	1,  // 16: hcore.Core.UrlTestActive:input_type -> hcommon.Empty
-	8,  // 17: hcore.Core.GenerateWarpConfig:input_type -> hcore.GenerateWarpConfigRequest
-	1,  // 18: hcore.Core.GetSystemProxyStatus:input_type -> hcommon.Empty
-	9,  // 19: hcore.Core.SetSystemProxyEnabled:input_type -> hcore.SetSystemProxyEnabledRequest
-	10, // 20: hcore.Core.LogListener:input_type -> hcore.LogRequest
-	11, // 21: hcore.Core.Close:input_type -> hcore.CloseRequest
-	12, // 22: hcore.Core.ProbeConnection:input_type -> hcore.NetworkProbeRequest
-	1,  // 23: hcore.Core.GetCurrentIpInfo:input_type -> hcommon.Empty
-	1,  // 24: hcore.Core.GetLANIP:input_type -> hcommon.Empty
-	1,  // 25: hcore.Core.IsAdmin:input_type -> hcommon.Empty
-	13, // 26: hcore.Core.NeedAdminBgService:input_type -> hcore.NeedAdminBgServiceRequest
-	14, // 27: hcore.Core.EnsureAdminBgService:input_type -> hcore.EnsureAdminBgServiceRequest
-	1,  // 28: hcore.Core.ListCrashReports:input_type -> hcommon.Empty
-	15, // 29: hcore.Core.ExportDiagnostics:input_type -> hcore.ExportDiagnosticsRequest
-	16, // 30: hcore.Core.Start:output_type -> hcore.CoreInfoResponse
-	16, // 31: hcore.Core.CoreInfoListener:output_type -> hcore.CoreInfoResponse
-	17, // 32: hcore.Core.OutboundsInfo:output_type -> hcore.OutboundGroupList
-	17, // 33: hcore.Core.MainOutboundsInfo:output_type -> hcore.OutboundGroupList
-	18, // 34: hcore.Core.GetSystemInfo:output_type -> hcore.SystemInfo
-	18, // 35: hcore.Core.GetSystemInfoStream:output_type -> hcore.SystemInfo
-	19, // 36: hcore.Core.Setup:output_type -> hcommon.Response
-	20, // 37: hcore.Core.Parse:output_type -> hcore.ParseResponse
-	16, // 38: hcore.Core.ChangeHiddifySettings:output_type -> hcore.CoreInfoResponse
-	21, // 39: hcore.Core.GenerateConfig:output_type -> hcore.GenerateConfigResponse
-	16, // 40: hcore.Core.StartService:output_type -> hcore.CoreInfoResponse
-	16, // 41: hcore.Core.Stop:output_type -> hcore.CoreInfoResponse
-	16, // 42: hcore.Core.Restart:output_type -> hcore.CoreInfoResponse
-	16, // 43: hcore.Core.HotReload:output_type -> hcore.CoreInfoResponse
-	19, // 44: hcore.Core.SelectOutbound:output_type -> hcommon.Response
-	19, // 45: hcore.Core.UrlTest:output_type -> hcommon.Response
-	19, // 46: hcore.Core.UrlTestActive:output_type -> hcommon.Response
-	22, // 47: hcore.Core.GenerateWarpConfig:output_type -> hcore.WarpGenerationResponse
-	23, // 48: hcore.Core.GetSystemProxyStatus:output_type -> hcore.SystemProxyStatus
-	19, // 49: hcore.Core.SetSystemProxyEnabled:output_type -> hcommon.Response
-	24, // 50: hcore.Core.LogListener:output_type -> hcore.LogMessage
-	1,  // 51: hcore.Core.Close:output_type -> hcommon.Empty
-	25, // 52: hcore.Core.ProbeConnection:output_type -> hcore.NetworkProbeResponse
-	26, // 53: hcore.Core.GetCurrentIpInfo:output_type -> hcore.IpInfo
-	27, // 54: hcore.Core.GetLANIP:output_type -> hcore.LANIPResponse
-	28, // 55: hcore.Core.IsAdmin:output_type -> hcore.IsAdminResponse
-	29, // 56: hcore.Core.NeedAdminBgService:output_type -> hcore.NeedAdminBgServiceResponse
-	30, // 57: hcore.Core.EnsureAdminBgService:output_type -> hcore.EnsureAdminBgServiceEvent
-	31, // 58: hcore.Core.ListCrashReports:output_type -> hcore.CrashReportList
-	32, // 59: hcore.Core.ExportDiagnostics:output_type -> hcore.ExportDiagnosticsResponse
-	30, // [30:60] is the sub-list for method output_type
-	0,  // [0:30] is the sub-list for method input_type
+	8,  // 17: hcore.Core.UploadTest:input_type -> hcore.SpeedTestRequest
+	8,  // 18: hcore.Core.DownloadTest:input_type -> hcore.SpeedTestRequest
+	1,  // 19: hcore.Core.ClearSpeedTests:input_type -> hcommon.Empty
+	9,  // 20: hcore.Core.GenerateWarpConfig:input_type -> hcore.GenerateWarpConfigRequest
+	1,  // 21: hcore.Core.GetSystemProxyStatus:input_type -> hcommon.Empty
+	10, // 22: hcore.Core.SetSystemProxyEnabled:input_type -> hcore.SetSystemProxyEnabledRequest
+	11, // 23: hcore.Core.LogListener:input_type -> hcore.LogRequest
+	12, // 24: hcore.Core.Close:input_type -> hcore.CloseRequest
+	13, // 25: hcore.Core.ProbeConnection:input_type -> hcore.NetworkProbeRequest
+	1,  // 26: hcore.Core.GetCurrentIpInfo:input_type -> hcommon.Empty
+	1,  // 27: hcore.Core.GetLANIP:input_type -> hcommon.Empty
+	1,  // 28: hcore.Core.IsAdmin:input_type -> hcommon.Empty
+	14, // 29: hcore.Core.NeedAdminBgService:input_type -> hcore.NeedAdminBgServiceRequest
+	15, // 30: hcore.Core.EnsureAdminBgService:input_type -> hcore.EnsureAdminBgServiceRequest
+	1,  // 31: hcore.Core.ListCrashReports:input_type -> hcommon.Empty
+	16, // 32: hcore.Core.ExportDiagnostics:input_type -> hcore.ExportDiagnosticsRequest
+	17, // 33: hcore.Core.Start:output_type -> hcore.CoreInfoResponse
+	17, // 34: hcore.Core.CoreInfoListener:output_type -> hcore.CoreInfoResponse
+	18, // 35: hcore.Core.OutboundsInfo:output_type -> hcore.OutboundGroupList
+	18, // 36: hcore.Core.MainOutboundsInfo:output_type -> hcore.OutboundGroupList
+	19, // 37: hcore.Core.GetSystemInfo:output_type -> hcore.SystemInfo
+	19, // 38: hcore.Core.GetSystemInfoStream:output_type -> hcore.SystemInfo
+	20, // 39: hcore.Core.Setup:output_type -> hcommon.Response
+	21, // 40: hcore.Core.Parse:output_type -> hcore.ParseResponse
+	17, // 41: hcore.Core.ChangeHiddifySettings:output_type -> hcore.CoreInfoResponse
+	22, // 42: hcore.Core.GenerateConfig:output_type -> hcore.GenerateConfigResponse
+	17, // 43: hcore.Core.StartService:output_type -> hcore.CoreInfoResponse
+	17, // 44: hcore.Core.Stop:output_type -> hcore.CoreInfoResponse
+	17, // 45: hcore.Core.Restart:output_type -> hcore.CoreInfoResponse
+	17, // 46: hcore.Core.HotReload:output_type -> hcore.CoreInfoResponse
+	20, // 47: hcore.Core.SelectOutbound:output_type -> hcommon.Response
+	20, // 48: hcore.Core.UrlTest:output_type -> hcommon.Response
+	20, // 49: hcore.Core.UrlTestActive:output_type -> hcommon.Response
+	20, // 50: hcore.Core.UploadTest:output_type -> hcommon.Response
+	20, // 51: hcore.Core.DownloadTest:output_type -> hcommon.Response
+	20, // 52: hcore.Core.ClearSpeedTests:output_type -> hcommon.Response
+	23, // 53: hcore.Core.GenerateWarpConfig:output_type -> hcore.WarpGenerationResponse
+	24, // 54: hcore.Core.GetSystemProxyStatus:output_type -> hcore.SystemProxyStatus
+	20, // 55: hcore.Core.SetSystemProxyEnabled:output_type -> hcommon.Response
+	25, // 56: hcore.Core.LogListener:output_type -> hcore.LogMessage
+	1,  // 57: hcore.Core.Close:output_type -> hcommon.Empty
+	26, // 58: hcore.Core.ProbeConnection:output_type -> hcore.NetworkProbeResponse
+	27, // 59: hcore.Core.GetCurrentIpInfo:output_type -> hcore.IpInfo
+	28, // 60: hcore.Core.GetLANIP:output_type -> hcore.LANIPResponse
+	29, // 61: hcore.Core.IsAdmin:output_type -> hcore.IsAdminResponse
+	30, // 62: hcore.Core.NeedAdminBgService:output_type -> hcore.NeedAdminBgServiceResponse
+	31, // 63: hcore.Core.EnsureAdminBgService:output_type -> hcore.EnsureAdminBgServiceEvent
+	32, // 64: hcore.Core.ListCrashReports:output_type -> hcore.CrashReportList
+	33, // 65: hcore.Core.ExportDiagnostics:output_type -> hcore.ExportDiagnosticsResponse
+	33, // [33:66] is the sub-list for method output_type
+	0,  // [0:33] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name

@@ -45,6 +45,13 @@ type HiddifyOptions struct {
 	BlockAds                bool   `json:"block-ads,omitempty" overridable:"true"`
 	UseXrayCoreWhenPossible bool   `json:"use-xray-core-when-possible,omitempty" overridable:"true"`
 	BalancerStrategy        string `json:"balancer-strategy,omitempty" overridable:"true"`
+	// KeepTop, when above 0, runs only that many of a profile's proxies, the fastest by their first
+	// pings, once the profile has more (see hcore's keep top); 0 or -1 runs them all. The profile
+	// sets it, from its `keep-top` header or the user's choice.
+	KeepTop int `json:"keep-top,omitempty" overridable:"true"`
+	// KeepTags are the tags of the profile's proxies the user chose to run: while any of them is in
+	// the profile, only those run, whatever KeepTop says; none of them left, KeepTop decides again.
+	KeepTags []string `json:"keep-tags,omitempty"`
 	// GeoIPPath        string      `json:"geoip-path"`
 	// GeoSitePath      string      `json:"geosite-path"`
 	Rules []Rule `json:"rules,omitempty" overridable:"true"`
@@ -84,9 +91,29 @@ type InboundOptions struct {
 	TProxyPort       uint16 `json:"tproxy-port,omitempty"`
 	RedirectPort     uint16 `json:"redirect-port,omitempty"`
 	DirectPort       uint16 `json:"direct-port,omitempty"`
-	MTU              uint32 `json:"mtu,omitempty"`
-	StrictRoute      bool   `json:"strict-route,omitempty"`
-	TUNStack         string `json:"tun-implementation,omitempty"`
+	// Each local port opens only while its switch is on; unset is on for the mixed port, off for the
+	// transparent ones, which serve setups made by hand (see portEnabled).
+	EnableMixedPort    *bool `json:"enable-mixed-port,omitempty"`
+	EnableTProxyPort   *bool `json:"enable-tproxy-port,omitempty"`
+	EnableRedirectPort *bool `json:"enable-redirect-port,omitempty"`
+	EnableDirectPort   *bool `json:"enable-direct-port,omitempty"`
+	// LanSharingPort is the port the local network uses while the VPN is shared with it, apart from
+	// this device's own (MixedPort), and asking for LanSharingPassword (see proxyListeners).
+	LanSharingPort uint16 `json:"lan-sharing-port,omitempty"`
+	// LocalProxyAuth makes the local port ask for LanSharingPassword as well. Off by default: browsers can not
+	// send a SOCKS5 password, nor can a system proxy, which never asks for it.
+	LocalProxyAuth bool `json:"local-proxy-auth,omitempty"`
+	// LocalProxyInVpn keeps the local port open in VPN mode, where every app already goes through the
+	// TUN. Off by default.
+	LocalProxyInVpn bool   `json:"local-proxy-in-vpn,omitempty"`
+	MTU             uint32 `json:"mtu,omitempty"`
+	StrictRoute     bool   `json:"strict-route,omitempty"`
+	// TUNStack is the TUN's TCP/IP stack: "sing15" (or empty) for sing-tun's own, the default; the
+	// legacy "system", "gvisor" and "mixed" are accepted until sing-box 1.17 (see TunStack).
+	TUNStack string `json:"tun-implementation,omitempty"`
+	// AutoRedirect lets a Linux TUN use nftables routing (sing-box auto_redirect) where the process
+	// can; on by default, off only to force the plain TUN. Nothing elsewhere (see AutoRedirectAvailable).
+	AutoRedirect bool `json:"auto-redirect"`
 }
 
 type URLTestOptions struct {
@@ -156,9 +183,11 @@ func DefaultHiddifyOptions() *HiddifyOptions {
 			TProxyPort:     12335,
 			RedirectPort:   12336,
 			DirectPort:     12337,
+			LanSharingPort: 12338,
 			MTU:            9000,
 			StrictRoute:    true,
-			TUNStack:       "mixed",
+			TUNStack:       "sing15",
+			AutoRedirect:   true,
 		},
 		URLTestOptions: URLTestOptions{
 			ConnectionTestUrl: "http://cp.cloudflare.com/",

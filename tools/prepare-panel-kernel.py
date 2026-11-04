@@ -26,6 +26,24 @@ def gitlink(name):
     return fields[2]
 
 
+def configure_panel_masque_rebase(panel):
+    """Keep per-user MASQUE rate limits on the new batched-packet transport."""
+    patch = panel / "deploy/speed/masque.patch"
+    old_patch = patch.read_text()
+    for evidence in ("current.speed, err = brokerclient.New", "waitDownload", "SpeedScope"):
+        if evidence not in old_patch:
+            raise ValueError("Panel MASQUE limiter changed; manual rebase required")
+    source = Path(__file__).with_name("rebase-panel-masque.py")
+    (panel / "tools/rebase-panel-masque.py").write_text(source.read_text())
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    before = 'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/speed/masque.patch"'
+    after = 'python3 "$task_root/tools/rebase-panel-masque.py" "$task_source/core/hiddify-sing-box"'
+    if script.count(before) != 1:
+        raise ValueError("Cannot find panel MASQUE speed limiter overlay")
+    build.write_text(script.replace(before, after))
+
+
 def configure_panel_protection_rebase(panel):
     """Rebase protection patch in the disposable panel checkout, never silently skip it."""
     source = Path(__file__).with_name("rebase-panel-protection.py")
@@ -303,6 +321,7 @@ def prepare(panel):
     xray_version = configure_panel_xray_dependency(panel, module)
     configure_panel_inbound_finalmask_rebase(panel)
     configure_panel_kcp_finalmask_interop(panel)
+    configure_panel_masque_rebase(panel)
     configure_panel_protection_rebase(panel)
     configure_panel_cipher_rebase(panel)
     configure_panel_transport_rebase(panel)

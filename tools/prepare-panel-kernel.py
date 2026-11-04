@@ -159,6 +159,27 @@ def refresh_awg_peer_source_check(lock):
     matches[0]["contains"] = "metadata.User = receiver.peerUsers.Lookup(source.Addr)"
 
 
+def refresh_xdrive_source_check(lock):
+    """Retarget XDrive evidence to its constructor registration after the transport split."""
+    old_path = "hiddify-sing-box/transport/v2ray/transport.go"
+    new_path = "hiddify-sing-box/transport/v2rayxdrive/transport.go"
+    old_evidence = "return xdrive.NewServer"
+    new_evidence = "v2ray.RegisterXDriveConstructor(NewServer, NewClient)"
+    matches = [
+        check for check in lock["source_checks"]
+        if check.get("contains") in (old_evidence, new_evidence)
+    ]
+    if len(matches) != 1:
+        raise ValueError("Missing or duplicate XDrive runtime source evidence")
+    check = matches[0]
+    if (check.get("path"), check.get("contains")) not in (
+        (old_path, old_evidence), (new_path, new_evidence),
+    ):
+        raise ValueError("Unexpected XDrive runtime source evidence")
+    check["path"] = new_path
+    check["contains"] = new_evidence
+
+
 def refresh_panel_audit_toolchain_check(panel, lock):
     """Pin the panel's disposable runtime audit to the checked-out core Go version."""
     toolchain = lock["panel_build"]["toolchain"]
@@ -309,6 +330,7 @@ def prepare(panel):
     lock["panel_build"]["protection_dependency_versions"]["github.com/xtls/xray-core"] = xray_version
     refresh_go_module_source_check(lock, module)
     refresh_awg_peer_source_check(lock)
+    refresh_xdrive_source_check(lock)
     refresh_panel_audit_toolchain_check(panel, lock)
     # The fork migrated NewRuleAction(ctx, logger, action) to
     # NewRuleAction(logger, action); preserve the panel sniff regression.

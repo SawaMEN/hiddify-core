@@ -110,6 +110,35 @@ class AWGSourceEvidenceTest(unittest.TestCase):
             prepare.refresh_awg_peer_source_check({"source_checks": []})
 
 
+class XDriveSourceEvidenceTest(unittest.TestCase):
+    def test_migrates_xdrive_check_to_registered_transport(self):
+        lock = {"source_checks": [
+            {"path": "hiddify-sing-box/transport/v2ray/transport.go",
+             "contains": "return xhttp.NewServer"},
+            {"path": "hiddify-sing-box/transport/v2ray/transport.go",
+             "contains": "return xdrive.NewServer"},
+        ]}
+        prepare.refresh_xdrive_source_check(lock)
+        self.assertEqual(
+            {"path": "hiddify-sing-box/transport/v2rayxdrive/transport.go",
+             "contains": "v2ray.RegisterXDriveConstructor(NewServer, NewClient)"},
+            lock["source_checks"][1],
+        )
+        self.assertEqual("return xhttp.NewServer", lock["source_checks"][0]["contains"])
+        prepare.refresh_xdrive_source_check(lock)  # idempotent
+
+    def test_rejects_missing_or_ambiguous_source_evidence(self):
+        with self.assertRaises(ValueError):
+            prepare.refresh_xdrive_source_check({"source_checks": []})
+        with self.assertRaises(ValueError):
+            prepare.refresh_xdrive_source_check({"source_checks": [
+                {"path": "hiddify-sing-box/transport/v2ray/transport.go",
+                 "contains": "return xdrive.NewServer"},
+                {"path": "hiddify-sing-box/transport/v2rayxdrive/transport.go",
+                 "contains": "v2ray.RegisterXDriveConstructor(NewServer, NewClient)"},
+            ]})
+
+
 class DependencyOverlayTest(unittest.TestCase):
     def fixture(self, folder, patch):
         panel = folder / "panel"

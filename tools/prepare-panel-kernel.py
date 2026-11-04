@@ -187,6 +187,23 @@ def patch_profile_suffix(version):
     return match.group(1)
 
 
+
+def configure_panel_xray_dependency(panel, module):
+    """Use the Xray revision required by the current core, not the panel's stale copy."""
+    match = re.search(r"(?m)^\\s*github\\.com/xtls/xray-core\\s+(v[^\\s]+)", module)
+    if match is None:
+        raise ValueError("Missing core Xray version")
+    version = match.group(1)
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    old_version = "v1.260327.1-0.20260728075948-5ca6f4b7d4dc"
+    previous = "github.com/xtls/xray-core@" + old_version
+    if script.count(previous) != 2:
+        raise ValueError("Unexpected panel Xray download and copy paths")
+    build.write_text(script.replace(previous, "github.com/xtls/xray-core@" + version))
+    return version
+
+
 def prepare(panel):
     core_sha = os.environ["KERNEL_COMMIT"]
     channel = os.environ["KERNEL_CHANNEL"]
@@ -203,7 +220,9 @@ def prepare(panel):
     if not re.fullmatch(r"[0-9a-f]{40}", sing_sha):
         raise ValueError("Invalid Sing-box revision")
 
-    prepare_runtime_dependencies(panel, Path("go.mod").read_text())
+    module = Path("go.mod").read_text()
+    prepare_runtime_dependencies(panel, module)
+    xray_version = configure_panel_xray_dependency(panel, module)
     configure_panel_protection_rebase(panel)
     configure_panel_cipher_rebase(panel)
     configure_panel_transport_rebase(panel)
@@ -224,7 +243,12 @@ def prepare(panel):
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
-    refresh_go_module_source_check(lock, Path("go.mod").read_text())
+    go_version = re.search(r"(?m)^go (\\d+\\.\\d+(?:\\.\\d+)?)$", module)
+    if go_version is None:
+        raise ValueError("Missing core Go toolchain")
+    lock["panel_build"]["toolchain"] = "go" + go_version.group(1)
+    lock["panel_build"]["protection_dependency_versions"]["github.com/xtls/xray-core"] = xray_version
+    refresh_go_module_source_check(lock, module)
     refresh_awg_peer_source_check(lock)
     refresh_panel_audit_toolchain_check(panel, lock)
     # The fork migrated NewRuleAction(ctx, logger, action) to

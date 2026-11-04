@@ -128,9 +128,10 @@ def main():
     # The newer fork preserves native KCP and a separately named Xray legacy
     # engine under with_kcp, supporting the original panel interop test.
     # Do not overwrite these with duplicate older KCP implementations.
-    legacy = (root / "transport/v2raykcp/legacy_config.go").read_text()
-    if "func buildOptions(" not in legacy or "mkcp-legacy" not in legacy:
-        raise RuntimeError("panel Xray mKCP legacy support not found")
+    native = (root / "transport/v2raykcp/config.go").read_text()
+    masks = (root / "hiddify/finalmask/finalmask.go").read_text()
+    if "func newConfig(" not in native or 'case "mkcp-legacy":' not in masks:
+        raise RuntimeError("native mKCP and FinalMask legacy interoperability support missing")
 
     sel = root / "protocol/group/selector.go"
     replace_once(sel, 'type Selector struct {\n',

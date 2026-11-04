@@ -399,6 +399,9 @@ replace github.com/hiddify/ray2sing => ./ray2sing
 replace masterdnsvpn-go => ./hiddify-sing-box/replace/MasterDnsVPN
 
 replace github.com/getlantern/soar => ./hiddify-sing-box/replace/soar
+
+// The fork's OpenVPN server requires PacketHeadroom, absent from the newer API.
+replace github.com/sagernet/sing-openvpn => github.com/sagernet/sing-openvpn v0.0.0-20260903200517-e060dda5b1f1
 replace github.com/sagernet/sing-box => ./hiddify-sing-box
 
 replace github.com/sagernet/sing-vmess => ./hiddify-sing-box/replace/sing-vmess

@@ -17,7 +17,6 @@ import (
 	C "github.com/sagernet/sing-box/constant"
 	sdns "github.com/sagernet/sing-box/dns"
 	"github.com/sagernet/sing-box/option"
-	"github.com/sagernet/sing/common/auth"
 	"github.com/sagernet/sing/common/json/badoption"
 )
 
@@ -600,10 +599,6 @@ func setInbound(options *option.Options, hopt *HiddifyOptions) {
 		if hopt.MixedPort == 0 {
 			hopt.MixedPort = 12334
 		}
-	}
-	var users []auth.User
-	if hopt.AllowConnectionFromLAN && hopt.LanSharingPassword != "" {
-		users = []auth.User{{Username: "hiddify", Password: hopt.LanSharingPassword}}
 	}
 	// var inboundDomainStrategy option.DomainStrategy
 	// if !opt.ResolveDestination {

@@ -39,7 +39,7 @@ func localUsers(hopt *HiddifyOptions) []auth.User {
 	if !hopt.LocalProxyAuth || hopt.SetSystemProxy {
 		return secretUsers("")
 	}
-	return secretUsers(hopt.ProxySecret)
+	return secretUsers(hopt.LanSharingPassword)
 }
 
 // secretUsers is the one user of a port that asks for [secret], or none for no secret.
@@ -91,7 +91,7 @@ func proxyListeners(hopt *HiddifyOptions, ipv6 bool) []proxyListener {
 			tag:         InboundLanSharingTag + every.String(),
 			addr:        every,
 			port:        hopt.LanSharingPort,
-			users:       secretUsers(hopt.ProxySecret),
+			users:       secretUsers(hopt.LanSharingPassword),
 			systemProxy: hopt.SetSystemProxy && hopt.LanSharingPort == hopt.MixedPort && localPortOpen(hopt),
 		})
 	}

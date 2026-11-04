@@ -31,6 +31,18 @@ func mixedInbounds(t *testing.T, settings string) map[string]*option.HTTPMixedIn
 	return mixed
 }
 
+
+func TestLANSharingPasswordJSONDoesNotShadowConfiguredSecret(t *testing.T) {
+	opts := chainTestOptions(t, `{"lan-sharing-password":"s3cret","local-proxy-auth":true}`)
+	if opts.LanSharingPassword != "s3cret" {
+		t.Fatalf("LAN sharing password not decoded: %q", opts.LanSharingPassword)
+	}
+	users := localUsers(opts)
+	if len(users) != 1 || users[0].Password != "s3cret" {
+		t.Fatalf("local proxy authentication lost: %v", users)
+	}
+}
+
 const ports = `"mixed-port":12334,"lan-sharing-port":12338,"redirect-port":12336,"direct-port":12337,"lan-sharing-password":"s3cret"`
 
 func asksTheSecret(opts *option.HTTPMixedInboundOptions) bool {

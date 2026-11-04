@@ -98,12 +98,9 @@ type InboundOptions struct {
 	EnableRedirectPort *bool `json:"enable-redirect-port,omitempty"`
 	EnableDirectPort   *bool `json:"enable-direct-port,omitempty"`
 	// LanSharingPort is the port the local network uses while the VPN is shared with it, apart from
-	// this device's own (MixedPort), and asking for ProxySecret (see proxyListeners).
+	// this device's own (MixedPort), and asking for LanSharingPassword (see proxyListeners).
 	LanSharingPort uint16 `json:"lan-sharing-port,omitempty"`
-	// ProxySecret is the password (of the user "hiddify") of the LAN sharing port, and of the local
-	// port too while LocalProxyAuth is on.
-	ProxySecret string `json:"lan-sharing-password,omitempty"`
-	// LocalProxyAuth makes the local port ask for ProxySecret as well. Off by default: browsers can not
+	// LocalProxyAuth makes the local port ask for LanSharingPassword as well. Off by default: browsers can not
 	// send a SOCKS5 password, nor can a system proxy, which never asks for it.
 	LocalProxyAuth bool `json:"local-proxy-auth,omitempty"`
 	// LocalProxyInVpn keeps the local port open in VPN mode, where every app already goes through the

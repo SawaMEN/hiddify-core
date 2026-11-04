@@ -201,6 +201,30 @@ def configure_panel_xray_dependency(panel, module):
     if script.count(previous) != 2:
         raise ValueError("Unexpected panel Xray download and copy paths")
     build.write_text(script.replace(previous, "github.com/xtls/xray-core@" + version))
+
+    # Xray 26.10 implemented the old mux fixes natively: PacketReader now
+    # retains the destination by value, and SessionManager.Allocate installs
+    # stream endpoints while holding its mutex. Applying the old mux patch
+    # would conflict with that refactor and regress its lifecycle handling.
+    if version != old_version:
+        if version != "v1.260327.1-0.20261031132019-a4a3dff5b20c":
+            raise ValueError("Unreviewed Xray upgrade: rebase runtime compatibility patch")
+        patch = panel / "deploy/hiddify/xray-runtime-compat.patch"
+        fragments = re.split(r"(?=^--- (?:a/|/dev/null))", patch.read_text(), flags=re.MULTILINE)
+        obsolete = {"common/mux/reader.go", "common/mux/client.go"}
+        filtered = []
+        removed = set()
+        for fragment in fragments:
+            match = re.match(r"--- a/([^\\n]+)\\n", fragment)
+            if match and match.group(1) in obsolete:
+                if match.group(1) in removed:
+                    raise ValueError("Duplicate Xray mux patch section")
+                removed.add(match.group(1))
+                continue
+            filtered.append(fragment)
+        if removed != obsolete:
+            raise ValueError("Unexpected Xray mux patch sections")
+        patch.write_text("".join(filtered))
     return version
 
 

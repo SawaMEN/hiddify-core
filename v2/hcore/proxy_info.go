@@ -401,7 +401,7 @@ func (h *HiddifyInstance) AllProxiesInfoStream(stream grpc.ServerStreamingServer
 				timer = time.NewTimer(debounceWindow)
 				timerCh = timer.C
 			}
-		case ev, ok := <-urltestch:
+		case _, ok := <-urltestch:
 			if !ok {
 				return nil
 			}

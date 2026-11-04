@@ -14,7 +14,7 @@ import (
 // each transparent port that opened by its type.
 func mixedInbounds(t *testing.T, settings string) map[string]*option.HTTPMixedInboundOptions {
 	t.Helper()
-	options, err := BuildConfig(libbox.BaseContext(nil), chainTestOptions(t, settings), &ReadOptions{Content: oneProxyProfile})
+	options, err := BuildConfig(libbox.BaseContext(nil), chainTestOptions(t, settings), &ReadOptions{Content: chainTestProfile})
 	if err != nil {
 		t.Fatalf("BuildConfig: %v", err)
 	}

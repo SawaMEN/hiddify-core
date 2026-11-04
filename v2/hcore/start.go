@@ -244,7 +244,7 @@ func startServiceLocked(ctx context.Context, in *StartRequest) (coreResponse *Co
 		Log(LogLevel_WARNING, LogType_CORE, "auto-redirect is not available here, starting the TUN without it: ", err.Error())
 		if options, err = buildRunningConfig(ctx, in); err == nil {
 			config.SaveCurrentConfig(ctx, currentBuildConfigPath, *options)
-			instance, err = NewService(serviceContext(ctx), *options, stopSignal(ctx))
+			instance, err = NewServiceWithStartupContext(serviceContext(ctx), ctx, *options)
 			watch.step("starting the service without auto-redirect")
 		}
 	}

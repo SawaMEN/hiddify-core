@@ -28,6 +28,7 @@ func (g *fakeGroup) Type() string                               { return "fake" 
 func (g *fakeGroup) Tag() string                                { return g.tag }
 func (g *fakeGroup) Network() []string                          { return []string{N.NetworkTCP} }
 func (g *fakeGroup) Dependencies() []string                     { return g.all }
+func (g *fakeGroup) IsReady() bool                          { return true }
 func (g *fakeGroup) Status() adapter.Status                     { return adapter.StatusReady }
 func (g *fakeGroup) All() []string                              { return g.all }
 func (g *fakeGroup) Selected(network string) adapter.Outbound   { return nil }

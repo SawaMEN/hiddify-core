@@ -60,13 +60,13 @@ func (s *hiddifyAdminBG) startBridge(in *AdminBgStartRequest) (*AdminBgResponse,
 		in.ServerPort = 12334
 	}
 	option := makeTunnelConfig(in)
-	box, err := hcore.NewService(libbox.BaseContext(nil), option, nil)
+	box, err := hcore.NewService(libbox.BaseContext(nil), option)
 	if err != nil && config.AutoRedirectFailed(&option, err) {
 		// the system lacks nftables, iptables or the nfqueue module: the TUN works without
 		// auto_redirect, as it did before
 		log.Printf("admin_bgservice: auto-redirect is not available here, starting the TUN without it: %v", err)
 		option = makeTunnelConfig(in)
-		box, err = hcore.NewService(libbox.BaseContext(nil), option, nil)
+		box, err = hcore.NewService(libbox.BaseContext(nil), option)
 	}
 	if err != nil {
 		return &AdminBgResponse{Message: err.Error()}, err

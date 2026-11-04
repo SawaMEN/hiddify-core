@@ -190,7 +190,7 @@ def patch_profile_suffix(version):
 
 def configure_panel_xray_dependency(panel, module):
     """Use the Xray revision required by the current core, not the panel's stale copy."""
-    match = re.search(r"(?m)^\\s*github\\.com/xtls/xray-core\\s+(v[^\\s]+)", module)
+    match = re.search(r"(?m)^\s*github\.com/xtls/xray-core\s+(v[^\s]+)", module)
     if match is None:
         raise ValueError("Missing core Xray version")
     version = match.group(1)
@@ -215,7 +215,7 @@ def configure_panel_xray_dependency(panel, module):
         filtered = []
         removed = set()
         for fragment in fragments:
-            match = re.match(r"--- a/([^\\n]+)\\n", fragment)
+            match = re.match(r"--- a/([^\n]+)\n", fragment)
             if match and match.group(1) in obsolete:
                 if match.group(1) in removed:
                     raise ValueError("Duplicate Xray mux patch section")
@@ -267,7 +267,7 @@ def prepare(panel):
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
-    go_version = re.search(r"(?m)^go (\\d+\\.\\d+(?:\\.\\d+)?)$", module)
+    go_version = re.search(r"(?m)^go (\d+\.\d+(?:\.\d+)?)$", module)
     if go_version is None:
         raise ValueError("Missing core Go toolchain")
     lock["panel_build"]["toolchain"] = "go" + go_version.group(1)

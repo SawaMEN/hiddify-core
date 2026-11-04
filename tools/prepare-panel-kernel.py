@@ -189,6 +189,20 @@ def patch_profile_suffix(version):
 
 
 
+
+def configure_panel_kcp_finalmask_interop(panel):
+    """Keep the full Xray-to-sing-box masked mKCP interoperability test."""
+    test = panel / "deploy/hiddify/kcp_transport_test.go.in"
+    source = test.read_text()
+    obsolete = "memory := &internet.MemoryStreamConfig{ProtocolName: kcp.ProtocolName, ProtocolSettings: config, UdpmaskManager: masks.UDP}"
+    replacement = ("dialer := udpDialer{}\n"
+                   "\t\t\t\tmemory := &internet.MemoryStreamConfig{ProtocolName: kcp.ProtocolName, "
+                   "ProtocolSettings: config, FinalMask: masks.XrayFinalMask(dialer.DialContext, dialer.ListenPacket)}")
+    if source.count(obsolete) != 1:
+        raise ValueError("Unexpected mKCP Xray FinalMask interoperability fixture")
+    test.write_text(source.replace(obsolete, replacement))
+
+
 def configure_panel_inbound_finalmask_rebase(panel):
     """Replace the removed TCP mask listener API after applying the panel overlay."""
     source = Path(__file__).with_name("rebase-panel-inbound-finalmask.py")
@@ -267,6 +281,7 @@ def prepare(panel):
     prepare_runtime_dependencies(panel, module)
     xray_version = configure_panel_xray_dependency(panel, module)
     configure_panel_inbound_finalmask_rebase(panel)
+    configure_panel_kcp_finalmask_interop(panel)
     configure_panel_protection_rebase(panel)
     configure_panel_cipher_rebase(panel)
     configure_panel_transport_rebase(panel)

@@ -201,6 +201,11 @@ def configure_panel_xray_dependency(panel, module):
     if script.count(previous) != 2:
         raise ValueError("Unexpected panel Xray download and copy paths")
     build.write_text(script.replace(previous, "github.com/xtls/xray-core@" + version))
+    audit_file = panel / "tools/audit-hiddify-migration.py"
+    audit = audit_file.read_text()
+    if audit.count(old_version) != 1:
+        raise ValueError("Unexpected Xray pin in panel runtime audit")
+    audit_file.write_text(audit.replace(old_version, version))
 
     # Xray 26.10 implemented the old mux fixes natively: PacketReader now
     # retains the destination by value, and SessionManager.Allocate installs

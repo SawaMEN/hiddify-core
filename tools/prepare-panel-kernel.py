@@ -188,6 +188,20 @@ def patch_profile_suffix(version):
 
 
 
+
+def configure_panel_inbound_finalmask_rebase(panel):
+    """Replace the removed TCP mask listener API after applying the panel overlay."""
+    source = Path(__file__).with_name("rebase-panel-inbound-finalmask.py")
+    (panel / "tools/rebase-panel-inbound-finalmask.py").write_text(source.read_text())
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    before = 'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/inbound-finalmask.patch"'
+    if script.count(before) != 1:
+        raise ValueError("Missing panel inbound FinalMask overlay")
+    after = before + '\npython3 "$task_root/tools/rebase-panel-inbound-finalmask.py" "$task_source/core/hiddify-sing-box"'
+    build.write_text(script.replace(before, after))
+
+
 def configure_panel_xray_dependency(panel, module):
     """Use the Xray revision required by the current core, not the panel's stale copy."""
     match = re.search(r"(?m)^\s*github\.com/xtls/xray-core\s+(v[^\s]+)", module)
@@ -252,6 +266,7 @@ def prepare(panel):
     module = Path("go.mod").read_text()
     prepare_runtime_dependencies(panel, module)
     xray_version = configure_panel_xray_dependency(panel, module)
+    configure_panel_inbound_finalmask_rebase(panel)
     configure_panel_protection_rebase(panel)
     configure_panel_cipher_rebase(panel)
     configure_panel_transport_rebase(panel)

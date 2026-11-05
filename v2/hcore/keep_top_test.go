@@ -4,6 +4,9 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/hiddify/hiddify-core/v2/config"
+	"github.com/sagernet/sing-box/experimental/libbox"
 )
 
 func TestPickTopProxies(t *testing.T) {
@@ -50,6 +53,32 @@ func TestWithSelectedKeepsTheCount(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if got := withSelected(slices.Clone(test.pick), test.count, test.selected); !slices.Equal(got, test.want) {
 				t.Fatalf("got %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestBuildRunningConfigParsesImportedProfileFormats(t *testing.T) {
+	previous := static.HiddifyOptions
+	static.HiddifyOptions = config.DefaultHiddifyOptions()
+	t.Cleanup(func() { static.HiddifyOptions = previous })
+
+	// The app's import validator accepts these formats. Starting the same
+	// profile must not unconditionally JSON-decode the original share URI.
+	for _, profile := range []struct {
+		name, content string
+	}{
+		{"naive share URL", "naive://user:password@server.example:443?quic=0"},
+		{"trojan share URL", "trojan://password@server.example:443?security=tls"},
+		{"sing-box JSON", `{"outbounds":[{"type":"direct","tag":"direct"}]}`},
+	} {
+		t.Run(profile.name, func(t *testing.T) {
+			built, err := buildRunningConfig(libbox.BaseContext(nil), &StartRequest{ConfigContent: profile.content})
+			if err != nil {
+				t.Fatalf("importable profile failed to start: %v", err)
+			}
+			if built == nil || len(built.Outbounds) == 0 {
+				t.Fatal("no outbounds were built")
 			}
 		})
 	}

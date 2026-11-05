@@ -299,7 +299,7 @@ def configure_panel_kcp_finalmask_interop(panel):
     # TLS and the Xray+FinalMask combinations.
     script = script.replace(
         obsolete_copy,
-        'test -f "$task_source/core/hiddify-sing-box/transport/v2raykcp/h_kcp_test.go"\\n'
+        'test -f "$task_source/core/hiddify-sing-box/transport/v2raykcp/h_kcp_test.go"\n'
         'test -f "$task_source/core/hiddify-sing-box/h_xray_kcp_test.go"',
     )
     old_run = ("github.com/sagernet/sing-box/transport/v2raykcp "
@@ -321,7 +321,7 @@ def configure_panel_kcp_finalmask_interop(panel):
         '-ldflags "$task_link_flags" -tags "${target[3]}" '
         "github.com/sagernet/sing-box -run '^TestH_(XrayKCP|KCPWithTLS)$' -count=1 -timeout=180s"
     )
-    script = script.replace(original_check, native_check + "\\n    " + original_check)
+    script = script.replace(original_check, native_check + "\n    " + original_check)
     build.write_text(script)
 
 

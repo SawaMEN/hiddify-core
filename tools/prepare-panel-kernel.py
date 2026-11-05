@@ -275,16 +275,54 @@ def configure_panel_owned_parser(panel, lock):
 
 
 def configure_panel_kcp_finalmask_interop(panel):
-    """Keep the full Xray-to-sing-box masked mKCP interoperability test."""
+    """Use maintained native KCP and FinalMask tests, not the removed legacy KCP API."""
     test = panel / "deploy/hiddify/kcp_transport_test.go.in"
     source = test.read_text()
-    obsolete = "memory := &internet.MemoryStreamConfig{ProtocolName: kcp.ProtocolName, ProtocolSettings: config, UdpmaskManager: masks.UDP}"
-    replacement = ("dialer := udpDialer{}\n"
-                   "\t\t\t\tmemory := &internet.MemoryStreamConfig{ProtocolName: kcp.ProtocolName, "
-                   "ProtocolSettings: config, FinalMask: masks.XrayFinalMask(dialer.DialContext, dialer.ListenPacket)}")
-    if source.count(obsolete) != 1:
-        raise ValueError("Unexpected mKCP Xray FinalMask interoperability fixture")
-    test.write_text(source.replace(obsolete, replacement))
+    for obsolete in (
+        "option.V2RayKCPOptions{Legacy: true, Header: header, Seed: seed}",
+        "config, masks, err := buildOptions(o)",
+    ):
+        if source.count(obsolete) != 1:
+            raise ValueError("Unexpected change in obsolete Xray KCP test fixture")
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    obsolete_copy = (
+        'cp "$task_root/deploy/hiddify/kcp_transport_test.go.in" '
+        '"$task_source/core/hiddify-sing-box/transport/v2raykcp/xui_kcp_test.go"'
+    )
+    if script.count(obsolete_copy) != 1:
+        raise ValueError("Missing legacy mKCP test injection")
+    # The new engine implements Xray's mKCP settings through the native
+    # V2RayKCPOptions and finalmask mkcp-legacy. The old panel test initializes
+    # deleted fields and buildOptions; its assertions are not applicable.
+    # Keep the native maintained tests that exercise concurrent KCP round trips,
+    # TLS and the Xray+FinalMask combinations.
+    script = script.replace(
+        obsolete_copy,
+        'test -f "$task_source/core/hiddify-sing-box/transport/v2raykcp/h_kcp_test.go"\\n'
+        'test -f "$task_source/core/hiddify-sing-box/h_xray_kcp_test.go"',
+    )
+    old_run = ("github.com/sagernet/sing-box/transport/v2raykcp "
+               "github.com/sagernet/sing-box/transport/v2rayxhttp "
+               "github.com/sagernet/sing-box/protocol/group -run '^TestXUIPanel'")
+    new_run = old_run.replace("-run '^TestXUIPanel'", "-run '^Test(XUIPanel|H_KCP)'")
+    if script.count(old_run) != 1:
+        raise ValueError("Cannot find panel transport test invocation")
+    script = script.replace(old_run, new_run)
+    original_check = (
+        'CGO_ENABLED="$task_cgo" GOTOOLCHAIN="${target[5]}" go test '
+        '-ldflags "$task_link_flags" -tags "${target[3]}" '
+        "github.com/sagernet/sing-box -run '^TestXUIPanelInboundFinalMask' -count=1"
+    )
+    if script.count(original_check) != 1:
+        raise ValueError("Cannot find root FinalMask regression")
+    native_check = (
+        'CGO_ENABLED="$task_cgo" GOTOOLCHAIN="${target[5]}" go test '
+        '-ldflags "$task_link_flags" -tags "${target[3]}" '
+        "github.com/sagernet/sing-box -run '^TestH_(XrayKCP|KCPWithTLS)$' -count=1 -timeout=180s"
+    )
+    script = script.replace(original_check, native_check + "\\n    " + original_check)
+    build.write_text(script)
 
 
 def configure_panel_inbound_finalmask_rebase(panel):

@@ -1,0 +1,47 @@
+name: Diagnose upstream v5.5.5 overlap
+
+on:
+  push:
+    branches: [sync/upstream-v5.5.5-20261105]
+
+permissions:
+  contents: read
+
+jobs:
+  conflicts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - name: Show upstream three-way conflict sections
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add source https://github.com/hiddify/hiddify-core.git
+          git fetch --no-tags source refs/tags/v5.5.0:refs/tags/_u550
+          git fetch --no-tags source refs/heads/main:refs/remotes/source/main
+          python3 - <<'PY'
+          import subprocess, tempfile
+          from pathlib import Path
+          files = ["go.mod","go.sum","v2/hcore/hcore.pb.go","v2/hcore/hcore_service_grpc.pb.go","v2/hcore/proxy_info.go"]
+          for path in files:
+              def show(ref):
+                  return subprocess.check_output(["git","show",f"{ref}:{path}"])
+              ours=Path(path).read_bytes()
+              base=show("refs/tags/_u550")
+              other=show("refs/remotes/source/main")
+              with tempfile.TemporaryDirectory() as td:
+                  a,b,c=[Path(td)/x for x in ("ours","base","new")]
+                  a.write_bytes(ours);b.write_bytes(base);c.write_bytes(other)
+                  r=subprocess.run(["git","merge-file","-p","--diff3",str(a),str(b),str(c)],capture_output=True)
+                  merged=r.stdout.decode("utf-8","replace")
+                  sections=merged.split("<<<<<<< ")[1:]
+                  print(f"=== {path} === exit={r.returncode}, sections={len(sections)}")
+                  for j,part in enumerate(sections):
+                      subsection=part.split(">>>>>>> ",1)[0]
+                      print(f"--- CONFLICT {j+1} ---")
+                      print(subsection[:1800])
+          PY

@@ -12,10 +12,7 @@ import sys
 APPLY = {
     "option/group.go",
     "common/urltest/urltest.go",
-    "transport/v2rayxhttp/server.go",
     "transport/v2rayxhttp/xpadding.go",
-    "transport/v2rayxhttp/writer.go",
-    "transport/v2rayxhttp/dialer.go",
 }
 EXPECTED = {
     "option/v2ray_transport.go",
@@ -103,6 +100,56 @@ def main():
         '\t\t\tdialer2, ok = manager.Outbound(options2.Detour)\n',
     )
     print("Rebased XHTTP nested download client against newer mode normalization")
+
+    # Native XHTTP no longer defines WaitReadCloser in dialer.go.
+    # Its dedicated helper already has serialized Set/Close/Read and closes
+    # a reader arriving after Close; do not restore the obsolete duplicate.
+    dialer_patch = sections["transport/v2rayxhttp/dialer.go"]
+    if "waitOnce sync.Once" not in dialer_patch or "io.ErrClosedPipe" not in dialer_patch:
+        raise RuntimeError("panel XHTTP dialer hardening patch changed")
+    newer_wait = (root / "transport/v2rayxhttp/h_wait_read_closer.go").read_text()
+    for marker in ("access sync.Mutex", "if w.closed || w.ReadCloser != nil",
+                   "w.access.Lock()", "return 0, io.ErrClosedPipe", "return rc.Close()"):
+        if marker not in newer_wait:
+            raise RuntimeError("native XHTTP read-closer hardening missing: " + marker)
+    dialer = (root / "transport/v2rayxhttp/dialer.go").read_text()
+    if "type WaitReadCloser struct" in dialer:
+        raise RuntimeError("old XHTTP read-closer unexpectedly returned to dialer.go")
+    print("Retained newer race-safe dedicated XHTTP read-closer")
+
+    # Native server already validates the same obfuscated padding extensions.
+    server_patch = sections["transport/v2rayxhttp/server.go"]
+    if "ExtractXPaddingFromRequest" not in server_patch or "IsPaddingValid" not in server_patch:
+        raise RuntimeError("panel XHTTP server padding patch changed")
+    server = (root / "transport/v2rayxhttp/server.go").read_text()
+    for marker in ("ExtractXPaddingFromRequest(&s.options.V2RayXHTTPBaseOptions",
+                   "IsPaddingValid(&s.options.V2RayXHTTPBaseOptions",
+                   "writer.WriteHeader(http.StatusBadRequest)"):
+        if marker not in server:
+            raise RuntimeError("native XHTTP padding validation missing: " + marker)
+    print("Retained native XHTTP header/query/cookie padding validation")
+
+    # The current writer preserves lengths before handing buffers to the
+    # receiver, but still needs to release *unsubmitted* buffers on errors.
+    writer_patch = sections["transport/v2rayxhttp/writer.go"]
+    if "buf.ReleaseMulti(buffer.MultiBuffer[i+1:])" not in writer_patch:
+        raise RuntimeError("panel XHTTP writer leak fix changed")
+    writer = root / "transport/v2rayxhttp/writer.go"
+    replace_once(
+        writer,
+        '\tfor _, buff := range buffer.MultiBuffer {\n'
+        '\t\tlength := int(buff.Len()) // H: capture before handing ownership to the reader\n'
+        '\t\terr := w.WriteMultiBuffer(buf.MultiBuffer{buff})\n'
+        '\t\tif err != nil {\n'
+        '\t\t\treturn writed, err\n',
+        '\tfor i, buff := range buffer.MultiBuffer {\n'
+        '\t\tlength := int(buff.Len()) // H: capture before handing ownership to the reader\n'
+        '\t\terr := w.WriteMultiBuffer(buf.MultiBuffer{buff})\n'
+        '\t\tif err != nil {\n'
+        '\t\t\tbuf.ReleaseMulti(buffer.MultiBuffer[i+1:])\n'
+        '\t\t\treturn writed, err\n',
+    )
+    print("Rebased XHTTP upload failure buffer-release fix")
 
     opt = root / "option/v2ray_transport.go"
     source = opt.read_text()

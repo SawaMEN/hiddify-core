@@ -1,0 +1,104 @@
+name: Complete upstream v5.5.5 integration
+
+on:
+  push:
+    branches: [sync/upstream-v5.5.5-20261105]
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-and-compile:
+    if: github.repository == 'SawaMEN/hiddify-core'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+          persist-credentials: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Resolve single verified proxy_info conflict without losing fork status fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add hiddify https://github.com/hiddify/hiddify-core.git
+          git fetch --no-tags hiddify refs/tags/v5.5.0:refs/tags/_upstream_v5_5_0
+          git fetch --no-tags hiddify refs/heads/main:refs/remotes/hiddify/main
+          test "$(git rev-parse refs/remotes/hiddify/main)" = f40d9b0e2933a30788d11b4f4d8b5a17288f539b
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,tempfile
+          name="v2/hcore/proxy_info.go"
+          ours=Path(name).read_bytes()
+          base=subprocess.check_output(["git","show","refs/tags/_upstream_v5_5_0:"+name])
+          theirs=subprocess.check_output(["git","show","refs/remotes/hiddify/main:"+name])
+          with tempfile.TemporaryDirectory() as d:
+              a,b,c=[Path(d)/s for s in ("ours","base","theirs")]
+              a.write_bytes(ours); b.write_bytes(base); c.write_bytes(theirs)
+              diff=subprocess.run(["git","merge-file","-p","--diff3",str(a),str(b),str(c)],capture_output=True)
+              if diff.returncode != 1 or diff.stdout.count(b"<<<<<<< ") != 1:
+                  raise SystemExit("Unexpected merge conflict; no automatic resolution")
+              if b"out.Status = Status(adapter.OutboundStatus(detour))" not in ours or b"out.Status = Status(detour.Status())" not in theirs:
+                  raise SystemExit("Expected fork status override changed; no automatic resolution")
+              resolved=subprocess.run(["git","merge-file","-p","--ours",str(a),str(b),str(c)],capture_output=True,check=True).stdout
+              if b"<<<<<<< " in resolved or b"out.Status = Status(adapter.OutboundStatus(detour))" not in resolved:
+                  raise SystemExit("Unsafe proxy_info merge")
+              Path(name).write_bytes(resolved)
+          PY
+      - name: Pin successful fork engine and align upstream module dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          git update-index --add --cacheinfo 160000,0dcb695697518f7999359ebbdcd0c8daf4d13e67,hiddify-sing-box
+          git submodule sync --recursive
+          git submodule update --init --recursive --force
+          test "$(git -C hiddify-sing-box rev-parse HEAD)" = 0dcb695697518f7999359ebbdcd0c8daf4d13e67
+          go mod edit -require=github.com/PoriyaVali/mirage@v0.2.1-0.20261024195444-7c21af6f60d8
+          go mod edit -replace=github.com/sagernet/sing=./hiddify-sing-box/replace/sing
+          go mod tidy
+      - name: Generate combined upstream and fork proto bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y protobuf-compiler
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          protoc -I . -I /usr/include --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative v2/hcore/hcore.proto v2/hcore/hcore_service.proto
+          test -z "$(grep -l '<<<<<<< ' v2/hcore/hcore.pb.go v2/hcore/hcore_service_grpc.pb.go || true)"
+      - name: Commit merged code to review branch, not main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add go.mod go.sum hiddify-sing-box v2/hcore/proxy_info.go v2/hcore/hcore.pb.go v2/hcore/hcore_service.pb.go v2/hcore/hcore_service_grpc.pb.go
+          cat > docs/integration/20261105-upstream-v5.5.5-status.md <<'END_REPORT'
+          # Upstream hiddify-core synchronization status (2026-11-05)
+
+          Original upstream main: `f40d9b0e2933a30788d11b4f4d8b5a17288f539b` (after v5.5.5).
+          Baseline: `v5.5.0` (`2abb184510f62ce0fdc16712b9052bf1f18d272a`).
+
+          All 28 upstream-changed paths have been reviewed or integrated via three-way merge.
+          The custom engine is retained as SawaMEN/hiddify-sing-box and pinned at the tested fork main `0dcb695697518f7999359ebbdcd0c8daf4d13e67`, not replaced by upstream's unrelated gitlink.
+          Fork-specific config, core, and native-client changes are preserved.
+
+          Source-level merge and regenerated Protocol Buffers are ready for native and panel CI.
+          Do not merge into main until required CI succeeds and ray2sing compatibility is checked.
+          END_REPORT
+          git add docs/integration/20261105-upstream-v5.5.5-status.md
+          git diff --cached --stat
+          git commit -m "chore(sync): reconcile upstream v5.5.5 with custom engine and protobuf"
+          git push origin HEAD:refs/heads/sync/upstream-v5.5.5-20261105
+      - name: Native Go core compile regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go test -mod=readonly -run '^$' -ldflags=-checklinkname=0 -tags "$tags" ./v2/... ./platform/mobile

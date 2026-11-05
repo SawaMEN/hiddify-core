@@ -229,6 +229,51 @@ def patch_profile_suffix(version):
 
 
 
+
+def configure_panel_utls_checkout(panel, module):
+    """Keep the panel's uTLS overlay on the same fork as the native core."""
+    if not re.search(
+        r"(?m)^replace github\.com/metacubex/utls => github\.com/Leadaxe/utls-lx v[^\s]+$",
+        module,
+    ):
+        raise ValueError("Missing pinned native uTLS replacement")
+    script_path = panel / "tools/build-hiddify-core.sh"
+    script = script_path.read_text()
+    old_download = "go mod download github.com/metacubex/utls@v1.8.8"
+    new_download = "go mod download github.com/metacubex/utls"
+    if script.count(old_download) != 1:
+        raise ValueError("Unexpected old uTLS download command")
+    script = script.replace(old_download, new_download)
+    old_copy = 'cp -a "$task_module_cache/github.com/metacubex/utls@v1.8.8" "$task_source/core/xui-dependencies/utls"'
+    new_copy = (
+        'task_utls_source=$(cd "$task_source/core"; '
+        'go list -m -f \'{{if .Replace}}{{.Replace.Dir}}{{else}}{{.Dir}}{{end}}\' github.com/metacubex/utls)\n'
+        'test -n "$task_utls_source" && test -f "$task_utls_source/go.mod"\n'
+        'cp -a "$task_utls_source" "$task_source/core/xui-dependencies/utls"'
+    )
+    if script.count(old_copy) != 1:
+        raise ValueError("Unexpected old uTLS source copy command")
+    script_path.write_text(script.replace(old_copy, new_copy))
+
+
+def configure_panel_owned_parser(panel, lock):
+    """Keep the core's pinned, compatible owned ray2sing revision and origin."""
+    repos = lock["target"]["submodule_repositories"]
+    if repos.get("ray2sing") not in {
+        "https://github.com/hiddify/ray2sing",
+        "https://github.com/SawaMEN/ray2sing",
+    }:
+        raise ValueError("Unexpected parser origin in panel lock")
+    repos["ray2sing"] = "https://github.com/SawaMEN/ray2sing"
+    script_path = panel / "tools/build-hiddify-core.sh"
+    script = script_path.read_text()
+    old = 'git -C "$task_source/core" config submodule.ray2sing.url https://github.com/hiddify/ray2sing.git'
+    new = 'git -C "$task_source/core" config submodule.ray2sing.url https://github.com/SawaMEN/ray2sing.git'
+    if script.count(old) != 1:
+        raise ValueError("Parser submodule origin override moved")
+    script_path.write_text(script.replace(old, new))
+
+
 def configure_panel_kcp_finalmask_interop(panel):
     """Keep the full Xray-to-sing-box masked mKCP interoperability test."""
     test = panel / "deploy/hiddify/kcp_transport_test.go.in"
@@ -319,6 +364,7 @@ def prepare(panel):
     module = Path("go.mod").read_text()
     prepare_runtime_dependencies(panel, module)
     xray_version = configure_panel_xray_dependency(panel, module)
+    configure_panel_utls_checkout(panel, module)
     configure_panel_inbound_finalmask_rebase(panel)
     configure_panel_kcp_finalmask_interop(panel)
     configure_panel_masque_rebase(panel)
@@ -342,6 +388,7 @@ def prepare(panel):
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
+    configure_panel_owned_parser(panel, lock)
     go_version = re.search(r"(?m)^go (\d+\.\d+(?:\.\d+)?)$", module)
     if go_version is None:
         raise ValueError("Missing core Go toolchain")

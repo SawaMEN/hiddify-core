@@ -2,7 +2,9 @@ package hcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	box "github.com/sagernet/sing-box"
@@ -108,6 +110,12 @@ func closeService(ss *daemon.StartedService) error {
 	watch.step("closing the box (inbounds, outbounds, services)")
 	ss.Close()
 	watch.step("ending the observers")
+	// Hot reload can finish an old instance's teardown before Stop closes
+	// the remaining observer handles. Closing an already-closed box is a
+	// successful stop, but do not ignore any other shutdown error.
+	if errors.Is(err, os.ErrClosed) && err.Error() == os.ErrClosed.Error() {
+		return nil
+	}
 	return err
 }
 

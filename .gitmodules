@@ -4,5 +4,5 @@
 	branch = main
 [submodule "ray2sing"]
 	path = ray2sing
-	url = https://github.com/hiddify/ray2sing.git
+	url = https://github.com/SawaMEN/ray2sing.git
 	branch = main

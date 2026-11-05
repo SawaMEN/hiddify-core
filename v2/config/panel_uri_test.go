@@ -241,7 +241,7 @@ func TestPanelURIFields(t *testing.T) {
 		"vless tls-xhttp-extra": {`"download":{"host":"` + pDomain + `","path":"/dl` + pPath + `"`, `"server":"dl.example.com"`, pinB64, `"User-Agent":"Mozilla/5.0"`},
 		"tuic":                  {`"alpn":"h3"`, `"congestion_control":"cubic"`, `"udp_relay_mode":"native"`, `"insecure":true`},
 		"hysteria":              {`"obfs":"` + pPath + `"`, `"server_name":"` + pDomain + `"`, `"up_mbps":100`, `"down_mbps":500`},
-		"hysteria port range":   {`"server_ports":"20000:30000"`},
+		"hysteria port range":   {`"server_ports":["20000:30000"]`},
 		"hy2":                   {`"type":"salamander"`, `"password":"` + pPath + `"`, `"insecure":true`},
 		"hy2 port range":        {`"server_ports":["20000:30000","40000:40010"]`},
 		"naive+quic":            {`"quic":true`, `"X-API-Key":"` + pPath + `"`},

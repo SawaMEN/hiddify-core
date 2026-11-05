@@ -229,17 +229,100 @@ def patch_profile_suffix(version):
 
 
 
+
+def configure_panel_utls_checkout(panel, module):
+    """Keep the panel's uTLS overlay on the same fork as the native core."""
+    if not re.search(
+        r"(?m)^replace github\.com/metacubex/utls => github\.com/Leadaxe/utls-lx v[^\s]+$",
+        module,
+    ):
+        raise ValueError("Missing pinned native uTLS replacement")
+    script_path = panel / "tools/build-hiddify-core.sh"
+    script = script_path.read_text()
+    old_download = "go mod download github.com/metacubex/utls@v1.8.8"
+    new_download = "go mod download github.com/metacubex/utls"
+    if script.count(old_download) != 1:
+        raise ValueError("Unexpected old uTLS download command")
+    script = script.replace(old_download, new_download)
+    old_copy = 'cp -a "$task_module_cache/github.com/metacubex/utls@v1.8.8" "$task_source/core/xui-dependencies/utls"'
+    new_copy = (
+        'task_utls_source=$(cd "$task_source/core"; '
+        'go list -m -f \'{{if .Replace}}{{.Replace.Dir}}{{else}}{{.Dir}}{{end}}\' github.com/metacubex/utls)\n'
+        'test -n "$task_utls_source" && test -f "$task_utls_source/go.mod"\n'
+        'cp -a "$task_utls_source" "$task_source/core/xui-dependencies/utls"'
+    )
+    if script.count(old_copy) != 1:
+        raise ValueError("Unexpected old uTLS source copy command")
+    script_path.write_text(script.replace(old_copy, new_copy))
+
+
+def configure_panel_owned_parser(panel, lock):
+    """Keep the core's pinned, compatible owned ray2sing revision and origin."""
+    repos = lock["target"]["submodule_repositories"]
+    if repos.get("ray2sing") not in {
+        "https://github.com/hiddify/ray2sing",
+        "https://github.com/SawaMEN/ray2sing",
+    }:
+        raise ValueError("Unexpected parser origin in panel lock")
+    repos["ray2sing"] = "https://github.com/SawaMEN/ray2sing"
+    script_path = panel / "tools/build-hiddify-core.sh"
+    script = script_path.read_text()
+    old = 'git -C "$task_source/core" config submodule.ray2sing.url https://github.com/hiddify/ray2sing.git'
+    new = 'git -C "$task_source/core" config submodule.ray2sing.url https://github.com/SawaMEN/ray2sing.git'
+    if script.count(old) != 1:
+        raise ValueError("Parser submodule origin override moved")
+    script_path.write_text(script.replace(old, new))
+
+
 def configure_panel_kcp_finalmask_interop(panel):
-    """Keep the full Xray-to-sing-box masked mKCP interoperability test."""
+    """Use maintained native KCP and FinalMask tests, not the removed legacy KCP API."""
     test = panel / "deploy/hiddify/kcp_transport_test.go.in"
     source = test.read_text()
-    obsolete = "memory := &internet.MemoryStreamConfig{ProtocolName: kcp.ProtocolName, ProtocolSettings: config, UdpmaskManager: masks.UDP}"
-    replacement = ("dialer := udpDialer{}\n"
-                   "\t\t\t\tmemory := &internet.MemoryStreamConfig{ProtocolName: kcp.ProtocolName, "
-                   "ProtocolSettings: config, FinalMask: masks.XrayFinalMask(dialer.DialContext, dialer.ListenPacket)}")
-    if source.count(obsolete) != 1:
-        raise ValueError("Unexpected mKCP Xray FinalMask interoperability fixture")
-    test.write_text(source.replace(obsolete, replacement))
+    for obsolete in (
+        "option.V2RayKCPOptions{Legacy: true, Header: header, Seed: seed}",
+        "config, masks, err := buildOptions(o)",
+    ):
+        if source.count(obsolete) != 1:
+            raise ValueError("Unexpected change in obsolete Xray KCP test fixture")
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    obsolete_copy = (
+        'cp "$task_root/deploy/hiddify/kcp_transport_test.go.in" '
+        '"$task_source/core/hiddify-sing-box/transport/v2raykcp/xui_kcp_test.go"'
+    )
+    if script.count(obsolete_copy) != 1:
+        raise ValueError("Missing legacy mKCP test injection")
+    # The new engine implements Xray's mKCP settings through the native
+    # V2RayKCPOptions and finalmask mkcp-legacy. The old panel test initializes
+    # deleted fields and buildOptions; its assertions are not applicable.
+    # Keep the native maintained tests that exercise concurrent KCP round trips,
+    # TLS and the Xray+FinalMask combinations.
+    script = script.replace(
+        obsolete_copy,
+        'test -f "$task_source/core/hiddify-sing-box/transport/v2raykcp/h_kcp_test.go"\n'
+        'test -f "$task_source/core/hiddify-sing-box/h_xray_kcp_test.go"',
+    )
+    old_run = ("github.com/sagernet/sing-box/transport/v2raykcp "
+               "github.com/sagernet/sing-box/transport/v2rayxhttp "
+               "github.com/sagernet/sing-box/protocol/group -run '^TestXUIPanel'")
+    new_run = old_run.replace("-run '^TestXUIPanel'", "-run '^Test(XUIPanel|H_KCP)'")
+    if script.count(old_run) != 1:
+        raise ValueError("Cannot find panel transport test invocation")
+    script = script.replace(old_run, new_run)
+    original_check = (
+        'CGO_ENABLED="$task_cgo" GOTOOLCHAIN="${target[5]}" go test '
+        '-ldflags "$task_link_flags" -tags "${target[3]}" '
+        "github.com/sagernet/sing-box -run '^TestXUIPanelInboundFinalMask' -count=1"
+    )
+    if script.count(original_check) != 1:
+        raise ValueError("Cannot find root FinalMask regression")
+    native_check = (
+        'CGO_ENABLED="$task_cgo" GOTOOLCHAIN="${target[5]}" go test '
+        '-ldflags "$task_link_flags" -tags "${target[3]}" '
+        "github.com/sagernet/sing-box -run '^TestH_(XrayKCP|KCPWithTLS)$' -count=1 -timeout=180s"
+    )
+    script = script.replace(original_check, native_check + "\n    " + original_check)
+    build.write_text(script)
 
 
 def configure_panel_inbound_finalmask_rebase(panel):
@@ -319,6 +402,7 @@ def prepare(panel):
     module = Path("go.mod").read_text()
     prepare_runtime_dependencies(panel, module)
     xray_version = configure_panel_xray_dependency(panel, module)
+    configure_panel_utls_checkout(panel, module)
     configure_panel_inbound_finalmask_rebase(panel)
     configure_panel_kcp_finalmask_interop(panel)
     configure_panel_masque_rebase(panel)
@@ -342,6 +426,7 @@ def prepare(panel):
 
     lock_file = panel / "docs/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
+    configure_panel_owned_parser(panel, lock)
     go_version = re.search(r"(?m)^go (\d+\.\d+(?:\.\d+)?)$", module)
     if go_version is None:
         raise ValueError("Missing core Go toolchain")

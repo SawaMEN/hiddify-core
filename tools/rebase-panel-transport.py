@@ -12,11 +12,7 @@ import sys
 APPLY = {
     "option/group.go",
     "common/urltest/urltest.go",
-    "transport/v2rayxhttp/client.go",
-    "transport/v2rayxhttp/server.go",
     "transport/v2rayxhttp/xpadding.go",
-    "transport/v2rayxhttp/writer.go",
-    "transport/v2rayxhttp/dialer.go",
 }
 EXPECTED = {
     "option/v2ray_transport.go",
@@ -71,6 +67,89 @@ def main():
         subprocess.run(["git", "apply", "--recount", "-"], cwd=root,
                        input=sections[name], text=True, check=True)
         print("Rebased original panel transport patch:", name)
+
+    # The fork normalizes XHTTP mode ahead of the download-endpoint setup.
+    # Apply the upstream panel extension with checked source anchors so the
+    # exact tested mode translation and cancellation hardening remain intact.
+    client_patch = sections["transport/v2rayxhttp/client.go"]
+    for required in (
+        'download, err := options.ResolveDownload()',
+        'if download != nil {',
+        'download detour requires outbound manager',
+    ):
+        if required not in client_patch:
+            raise RuntimeError("panel XHTTP download patch changed: " + required)
+    client = root / "transport/v2rayxhttp/client.go"
+    replace_once(
+        client,
+        '\toptions.Mode = hClientMode(options.Mode, tls.IsReality(tlsConfig), options.Download != nil) // H\n',
+        '\tdownload, err := options.ResolveDownload()\n'
+        '\tif err != nil { return nil, err }\n'
+        '\toptions.Mode = hClientMode(options.Mode, tls.IsReality(tlsConfig), download != nil) // H\n',
+    )
+    replace_once(client,
+                 '\tif options.Download != nil {\n\t\toptions2 := options.Download\n',
+                 '\tif download != nil {\n\t\toptions2 := download\n')
+    replace_once(
+        client,
+        '\t\t\tdialer2, ok = service.FromContext[adapter.OutboundManager](ctx).Outbound(options2.Detour)\n',
+        '\t\t\tmanager := service.FromContext[adapter.OutboundManager](ctx)\n'
+        '\t\t\tif manager == nil {\n'
+        '\t\t\t\treturn nil, E.New("download detour requires outbound manager")\n'
+        '\t\t\t}\n'
+        '\t\t\tdialer2, ok = manager.Outbound(options2.Detour)\n',
+    )
+    print("Rebased XHTTP nested download client against newer mode normalization")
+
+    # Native XHTTP no longer defines WaitReadCloser in dialer.go.
+    # Its dedicated helper already has serialized Set/Close/Read and closes
+    # a reader arriving after Close; do not restore the obsolete duplicate.
+    dialer_patch = sections["transport/v2rayxhttp/dialer.go"]
+    if "waitOnce sync.Once" not in dialer_patch or "io.ErrClosedPipe" not in dialer_patch:
+        raise RuntimeError("panel XHTTP dialer hardening patch changed")
+    newer_wait = (root / "transport/v2rayxhttp/h_wait_read_closer.go").read_text()
+    for marker in ("access sync.Mutex", "if w.closed || w.ReadCloser != nil",
+                   "w.access.Lock()", "return 0, io.ErrClosedPipe", "return rc.Close()"):
+        if marker not in newer_wait:
+            raise RuntimeError("native XHTTP read-closer hardening missing: " + marker)
+    dialer = (root / "transport/v2rayxhttp/dialer.go").read_text()
+    if "type WaitReadCloser struct" in dialer:
+        raise RuntimeError("old XHTTP read-closer unexpectedly returned to dialer.go")
+    print("Retained newer race-safe dedicated XHTTP read-closer")
+
+    # Native server already validates the same obfuscated padding extensions.
+    server_patch = sections["transport/v2rayxhttp/server.go"]
+    if "ExtractXPaddingFromRequest" not in server_patch or "IsPaddingValid" not in server_patch:
+        raise RuntimeError("panel XHTTP server padding patch changed")
+    server = (root / "transport/v2rayxhttp/server.go").read_text()
+    for marker in ("ExtractXPaddingFromRequest(&s.options.V2RayXHTTPBaseOptions",
+                   "IsPaddingValid(&s.options.V2RayXHTTPBaseOptions",
+                   "writer.WriteHeader(http.StatusBadRequest)"):
+        if marker not in server:
+            raise RuntimeError("native XHTTP padding validation missing: " + marker)
+    print("Retained native XHTTP header/query/cookie padding validation")
+
+    # The current writer preserves lengths before handing buffers to the
+    # receiver, but still needs to release *unsubmitted* buffers on errors.
+    writer_patch = sections["transport/v2rayxhttp/writer.go"]
+    if "buf.ReleaseMulti(buffer.MultiBuffer[i+1:])" not in writer_patch:
+        raise RuntimeError("panel XHTTP writer leak fix changed")
+    writer = root / "transport/v2rayxhttp/writer.go"
+    replace_once(
+        writer,
+        '\tfor _, buff := range buffer.MultiBuffer {\n'
+        '\t\tlength := int(buff.Len()) // H: capture before handing ownership to the reader\n'
+        '\t\terr := w.WriteMultiBuffer(buf.MultiBuffer{buff})\n'
+        '\t\tif err != nil {\n'
+        '\t\t\treturn writed, err\n',
+        '\tfor i, buff := range buffer.MultiBuffer {\n'
+        '\t\tlength := int(buff.Len()) // H: capture before handing ownership to the reader\n'
+        '\t\terr := w.WriteMultiBuffer(buf.MultiBuffer{buff})\n'
+        '\t\tif err != nil {\n'
+        '\t\t\tbuf.ReleaseMulti(buffer.MultiBuffer[i+1:])\n'
+        '\t\t\treturn writed, err\n',
+    )
+    print("Rebased XHTTP upload failure buffer-release fix")
 
     opt = root / "option/v2ray_transport.go"
     source = opt.read_text()

@@ -1018,6 +1018,8 @@ type OutboundInfo struct {
 	DownloadTesting         bool                   `protobuf:"varint,22,opt,name=download_testing,json=downloadTesting,proto3" json:"download_testing,omitempty"`               // a download test runs through it now
 	UploadSpeedCached       bool                   `protobuf:"varint,23,opt,name=upload_speed_cached,json=uploadSpeedCached,proto3" json:"upload_speed_cached,omitempty"`       // upload_speed is from an earlier run, kept until a new test
 	DownloadSpeedCached     bool                   `protobuf:"varint,24,opt,name=download_speed_cached,json=downloadSpeedCached,proto3" json:"download_speed_cached,omitempty"` // download_speed is from an earlier run, kept until a new test
+	Error                   string                 `protobuf:"bytes,25,opt,name=error,proto3" json:"error,omitempty"`                                                           // why it failed: the error of its last URL test, or why it is not ready (WARP, MASQUE); empty when it works or does not say
+	SortDelay               int32                  `protobuf:"varint,26,opt,name=sort_delay,json=sortDelay,proto3" json:"sort_delay,omitempty"`                                 // what to sort by: url_test_delay, or the delay cached from the previous run, which is not shown; 0 untested
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -1218,6 +1220,20 @@ func (x *OutboundInfo) GetDownloadSpeedCached() bool {
 		return x.DownloadSpeedCached
 	}
 	return false
+}
+
+func (x *OutboundInfo) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *OutboundInfo) GetSortDelay() int32 {
+	if x != nil {
+		return x.SortDelay
+	}
+	return 0
 }
 
 type IpInfo struct {
@@ -3207,7 +3223,7 @@ const file_v2_hcore_hcore_proto_rawDesc = "" +
 	"\x0edownlink_total\x18\t \x01(\x03R\rdownlinkTotal\x12)\n" +
 	"\x10current_outbound\x18\n" +
 	" \x01(\tR\x0fcurrentOutbound\x12'\n" +
-	"\x0fcurrent_profile\x18\v \x01(\tR\x0ecurrentProfile\"\xb0\a\n" +
+	"\x0fcurrent_profile\x18\v \x01(\tR\x0ecurrentProfile\"\xe5\a\n" +
 	"\fOutboundInfo\x12\x10\n" +
 	"\x03tag\x18\x01 \x01(\tR\x03tag\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12>\n" +
@@ -3236,7 +3252,10 @@ const file_v2_hcore_hcore_proto_rawDesc = "" +
 	"\x0edownload_speed\x18\x15 \x01(\x03R\rdownloadSpeed\x12)\n" +
 	"\x10download_testing\x18\x16 \x01(\bR\x0fdownloadTesting\x12.\n" +
 	"\x13upload_speed_cached\x18\x17 \x01(\bR\x11uploadSpeedCached\x122\n" +
-	"\x15download_speed_cached\x18\x18 \x01(\bR\x13downloadSpeedCachedB\t\n" +
+	"\x15download_speed_cached\x18\x18 \x01(\bR\x13downloadSpeedCached\x12\x14\n" +
+	"\x05error\x18\x19 \x01(\tR\x05error\x12\x1d\n" +
+	"\n" +
+	"sort_delay\x18\x1a \x01(\x05R\tsortDelayB\t\n" +
 	"\a_ipinfoB\x15\n" +
 	"\x13_group_selected_tagB\x1d\n" +
 	"\x1b_group_selected_tag_display\"\x88\x02\n" +

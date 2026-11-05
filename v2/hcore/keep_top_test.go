@@ -2,6 +2,7 @@ package hcore
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,10 +71,17 @@ func TestBuildRunningConfigParsesImportedProfileFormats(t *testing.T) {
 	}{
 		{"naive share URL", "naive://user:password@server.example:443?quic=0"},
 		{"trojan share URL", "trojan://password@server.example:443?security=tls"},
-		{"sing-box JSON", `{"outbounds":[{"type":"direct","tag":"direct"}]}`},
+		{"sing-box JSON", `{"outbounds":[{"type":"trojan","tag":"proxy","server":"server.example","server_port":443,"password":"password","tls":{"enabled":true}}]}`},
 	} {
 		t.Run(profile.name, func(t *testing.T) {
 			built, err := buildRunningConfig(libbox.BaseContext(nil), &StartRequest{ConfigContent: profile.content})
+			// The race-test build omits optional Naive support. Reaching the
+			// transport's explicit build-tag error still proves that startup
+			// ran the share-link parser instead of rejecting `naive://` as JSON.
+			if profile.name == "naive share URL" && err != nil &&
+				strings.Contains(err.Error(), "naive outbound is not included in this build") {
+				return
+			}
 			if err != nil {
 				t.Fatalf("importable profile failed to start: %v", err)
 			}

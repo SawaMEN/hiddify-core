@@ -62,7 +62,13 @@ func buildRunningConfig(ctx context.Context, in *StartRequest) (*option.Options,
 		clearKeepTop()
 		return BuildConfig(ctx, in)
 	}
-	input, err := config.ReadSingOptions(ctx, &config.ReadOptions{Content: in.ConfigContent, Path: in.ConfigPath})
+	// Profiles may contain share URIs (including naive://), base64 subscriptions,
+	// Clash YAML or native JSON. The import validator accepts them all, but
+	// ReadSingOptions assumes JSON and rejects raw share URIs on Connect.
+	// ParseConfig uses the same parser as import and preserves stable proxy tags
+	// before the keep-top/keep-tags selection logic below.
+	input, err := config.ParseConfig(ctx, &config.ReadOptions{Content: in.ConfigContent, Path: in.ConfigPath},
+		false, static.HiddifyOptions, false)
 	if err != nil {
 		return nil, err
 	}

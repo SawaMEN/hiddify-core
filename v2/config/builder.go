@@ -13,11 +13,19 @@ import (
 	sync "sync"
 	"time"
 
-	mDNS "github.com/miekg/dns"
 	C "github.com/sagernet/sing-box/constant"
 	sdns "github.com/sagernet/sing-box/dns"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/json/badoption"
+)
+
+// A balancer's member takes the selection when faster by more than the larger of the two: a
+// share of the selected member's delay (100 ms is left for 60 ms, not for 90 ms), with a floor
+// against the jitter of close pings (25 ms is not left for 22 ms). An absolute 100 ms kept a
+// 59 ms member over a 25 ms one.
+const (
+	BalancerTolerance      uint16 = 30
+	BalancerToleranceRatio        = 0.2
 )
 
 const (
@@ -352,8 +360,8 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 			// URLs:      opt.ConnectionTestUrls,
 			// Interval:  badoption.Duration(opt.URLTestInterval.Duration()),
 			// IdleTimeout: badoption.Duration(opt.URLTestIdleTimeout.Duration()),
-			Tolerance:      100,
-			ToleranceRatio: 0.1,
+			Tolerance:      BalancerTolerance,
+			ToleranceRatio: BalancerToleranceRatio,
 			// IdleTimeout:               badoption.Duration(opt.URLTestInterval.Duration().Nanoseconds() * 3),
 			InterruptExistConnections: true,
 		},
@@ -370,8 +378,8 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 			// URLs:      opt.ConnectionTestUrls,
 			// Interval:  badoption.Duration(opt.URLTestInterval.Duration()),
 			// IdleTimeout: badoption.Duration(opt.URLTestIdleTimeout.Duration()),
-			Tolerance:      100,
-			ToleranceRatio: 0.1,
+			// no tolerance: it is lowest-delay's, and the pool reads it too, and with it a faster
+			// member outside would take a slot, moving its sticky keys
 			// IdleTimeout:               badoption.Duration(opt.URLTestInterval.Duration().Nanoseconds() * 3),
 			InterruptExistConnections: true,
 		},
@@ -405,7 +413,13 @@ func setOutbounds(options *option.Options, input *option.Options, opt *HiddifyOp
 	if len(tags) > 1 {
 		outbounds = append([]option.Outbound{balancer, urlTest}, outbounds...)
 		selectorTags = append([]string{urlTest.Tag, balancer.Tag}, selectorTags...)
-		defaultSelect = balancer.Tag
+		switch opt.DefaultProxy {
+		case DefaultProxyLowest:
+			defaultSelect = urlTest.Tag
+		case DefaultProxyFirst:
+		default:
+			defaultSelect = balancer.Tag
+		}
 	}
 	selector := option.Outbound{
 		Type: C.TypeSelector,
@@ -1216,12 +1230,12 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 		dnsRules = append(
 			dnsRules,
 			option.DefaultDNSRule{
+				// No query_type matcher: it takes sing-box out of the legacy DNS mode, and the
+				// strategy the rules set is fatal outside it (the core stopped at Connecting).
+				// The fake IP server answers only A and AAAA and fails the rest, which
+				// bypass_if_failed sends on to the remote rule below.
 				RawDefaultDNSRule: option.RawDefaultDNSRule{
 					// Inbound: inbounds,
-					QueryType: badoption.Listable[option.DNSQueryType]{
-						option.DNSQueryType(mDNS.StringToType["A"]),
-						option.DNSQueryType(mDNS.StringToType["AAAA"]),
-					},
 				},
 				DNSRuleAction: option.DNSRuleAction{
 					Action: C.RuleActionTypeRoute,
@@ -1232,7 +1246,7 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 							IPv6ByOutbound: ipv6ByOutbound(hopt, OutboundMainDetour),
 							RewriteTTL:     &DEFAULT_DNS_TTL,
 							DisableCache:   true,
-							BypassIfFailed: false,
+							BypassIfFailed: true,
 						},
 					},
 				},

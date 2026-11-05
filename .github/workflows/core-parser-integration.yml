@@ -1,0 +1,71 @@
+name: Core and parser integration regressions
+on:
+  push:
+    branches:
+      - main
+      - sync/upstream-v5.5.5-20261105
+    paths:
+      - go.mod
+      - go.sum
+      - hiddify-sing-box
+      - ray2sing
+      - v2/**
+      - platform/mobile/**
+      - .gitmodules
+      - .github/workflows/core-parser-integration.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - go.mod
+      - go.sum
+      - hiddify-sing-box
+      - ray2sing
+      - v2/**
+      - platform/mobile/**
+      - .gitmodules
+      - .github/workflows/core-parser-integration.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-parser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact nested fork revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule status --recursive
+          test "$(git -C hiddify-sing-box rev-parse HEAD)" = 0dcb695697518f7999359ebbdcd0c8daf4d13e67
+          git -C ray2sing status --porcelain
+          test "$(git -C ray2sing rev-parse HEAD)" = c6368fc6adea94f7aa9ec57065aae3ad53343ac4
+          test "$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Dir}}{{end}}' github.com/sagernet/sing)" = "$PWD/hiddify-sing-box/replace/sing"
+      - name: Download and compile all native packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod download all
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go test -mod=readonly -run '^$' -ldflags=-checklinkname=0 -tags "$tags" ./v2/... ./platform/mobile
+      - name: Native APIs and parser regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" ./v2/config/... ./platform/mobile
+          (cd ray2sing && go test -mod=readonly ./ray2sing/... ./ray2sing_test/...)
+      - name: Native vet
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go vet -mod=readonly -tags "$tags" ./v2/...

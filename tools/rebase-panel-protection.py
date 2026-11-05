@@ -81,6 +81,35 @@ def main():
             return resolve(path, match.group(1), match.group(2), index)
         updated = MARKERS.sub(replacement, source)
         check("<<<<<<<" not in updated and ">>>>>>>" not in updated, "Unresolved conflict: " + path)
+        if path == "protocol/vless/outbound.go":
+            # The panel's named-return DialContext defers closing conn on errors.
+            # The newer fork also closes rawConn in an encryption handshake error
+            # handler. Prevent a second Close from the defer without removing the
+            # cleanup for other connection errors.
+            before, separator, after = updated.partition(
+                "func (h *vlessDialer) ListenPacket("
+            )
+            check(bool(separator), "VLESS packet boundary moved")
+            for message in ("ctx.Err()", "handshakeErr"):
+                if message == "ctx.Err()":
+                    old = ('if ctx.Err() != nil {\\n'
+                           '\\t\\t\\tcloseRaw()\\n'
+                           '\\t\\t\\treturn nil, E.Cause(ctx.Err(), "encryption handshake")')
+                    new = ('if ctx.Err() != nil {\\n'
+                           '\\t\\t\\tcloseRaw()\\n'
+                           '\\t\\t\\tconn = nil // already closed; skip the named-return deferred close\\n'
+                           '\\t\\t\\treturn nil, E.Cause(ctx.Err(), "encryption handshake")')
+                else:
+                    old = ('if handshakeErr != nil {\\n'
+                           '\\t\\t\\tcloseRaw()\\n'
+                           '\\t\\t\\treturn nil, E.Cause(handshakeErr, "encryption handshake")')
+                    new = ('if handshakeErr != nil {\\n'
+                           '\\t\\t\\tcloseRaw()\\n'
+                           '\\t\\t\\tconn = nil // already closed; skip the named-return deferred close\\n'
+                           '\\t\\t\\treturn nil, E.Cause(handshakeErr, "encryption handshake")')
+                check(before.count(old) == 1, "Unexpected VLESS close path: " + message)
+                before = before.replace(old, new, 1)
+            updated = before + separator + after
         target.write_text(updated)
     subprocess.run(["gofmt", "-w", *REVIEWED], cwd=directory, check=True)
     subprocess.run(["git", "add", "-A", "--", "common/tls", "option", "protocol/vless"],

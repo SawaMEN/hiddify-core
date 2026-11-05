@@ -12,7 +12,6 @@ import sys
 APPLY = {
     "option/group.go",
     "common/urltest/urltest.go",
-    "transport/v2rayxhttp/client.go",
     "transport/v2rayxhttp/server.go",
     "transport/v2rayxhttp/xpadding.go",
     "transport/v2rayxhttp/writer.go",
@@ -71,6 +70,39 @@ def main():
         subprocess.run(["git", "apply", "--recount", "-"], cwd=root,
                        input=sections[name], text=True, check=True)
         print("Rebased original panel transport patch:", name)
+
+    # The fork normalizes XHTTP mode ahead of the download-endpoint setup.
+    # Apply the upstream panel extension with checked source anchors so the
+    # exact tested mode translation and cancellation hardening remain intact.
+    client_patch = sections["transport/v2rayxhttp/client.go"]
+    for required in (
+        'download, err := options.ResolveDownload()',
+        'if download != nil {',
+        'download detour requires outbound manager',
+    ):
+        if required not in client_patch:
+            raise RuntimeError("panel XHTTP download patch changed: " + required)
+    client = root / "transport/v2rayxhttp/client.go"
+    replace_once(
+        client,
+        '\toptions.Mode = hClientMode(options.Mode, tls.IsReality(tlsConfig), options.Download != nil) // H\n',
+        '\tdownload, err := options.ResolveDownload()\n'
+        '\tif err != nil { return nil, err }\n'
+        '\toptions.Mode = hClientMode(options.Mode, tls.IsReality(tlsConfig), download != nil) // H\n',
+    )
+    replace_once(client,
+                 '\tif options.Download != nil {\n\t\toptions2 := options.Download\n',
+                 '\tif download != nil {\n\t\toptions2 := download\n')
+    replace_once(
+        client,
+        '\t\t\tdialer2, ok = service.FromContext[adapter.OutboundManager](ctx).Outbound(options2.Detour)\n',
+        '\t\t\tmanager := service.FromContext[adapter.OutboundManager](ctx)\n'
+        '\t\t\tif manager == nil {\n'
+        '\t\t\t\treturn nil, E.New("download detour requires outbound manager")\n'
+        '\t\t\t}\n'
+        '\t\t\tdialer2, ok = manager.Outbound(options2.Detour)\n',
+    )
+    print("Rebased XHTTP nested download client against newer mode normalization")
 
     opt = root / "option/v2ray_transport.go"
     source = opt.read_text()

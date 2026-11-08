@@ -183,5 +183,39 @@ class DependencyOverlayTest(unittest.TestCase):
                 prepare.prepare_runtime_dependencies(panel, "require (\n)\n")
 
 
+
+class NativeOverlayCanaryTest(unittest.TestCase):
+    def test_native_gates_preserve_incomplete_overlays(self):
+        applications = [
+            'git -C "$task_source/core" apply "$task_root/deploy/hiddify/clash-user.patch"',
+            'git -C "$task_source/core" apply "$task_root/deploy/hiddify/sniff-override.patch"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/http1-options.patch"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/hysteria-safety.patch"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/inbound-finalmask.patch"',
+            'python3 "$task_root/tools/rebase-panel-ciphers.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/explicit-cipher-suites.patch"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/stream-handshake.patch"',
+            'python3 "$task_root/tools/rebase-panel-vless-handshake.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/vless-handshake.patch"',
+            'python3 "$task_root/tools/rebase-panel-inbound-finalmask.py" "$task_source/core/hiddify-sing-box"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/transport-balancer.patch"',
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            panel = Path(tmp)
+            script = panel / "tools/build-hiddify-core.sh"
+            script.parent.mkdir(parents=True)
+            source = "\n".join(applications) + "\n"
+            script.write_text(source)
+            prepare.configure_native_overlay_canary(panel)
+            generated = script.read_text()
+            self.assertEqual(8, generated.count("Missing native regression:"))
+            self.assertNotIn("rebase-panel-inbound-finalmask.py", generated)
+            self.assertIn("transport-balancer.patch", generated)
+            self.assertIn("test -f", generated)
+            # A changed overlay application cannot silently disappear.
+            script.write_text(source.replace("clash-user.patch", "renamed-clash.patch"))
+            with self.assertRaises(ValueError):
+                prepare.configure_native_overlay_canary(panel)
+            self.assertEqual(source.replace("clash-user.patch", "renamed-clash.patch"), script.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -383,6 +383,194 @@ def configure_panel_xray_dependency(panel, module):
     return version
 
 
+
+def configure_native_overlay_canary(panel):
+    """In the isolated integration candidate, test the native source instead of
+    reapplying patches whose complete equivalents are already checked in.
+
+    This does not affect 3x-ui/main, and never skips the seven incomplete groups
+    or the release verifier. Missing native regression tests fail the build.
+    """
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    root = '$task_source/core/hiddify-sing-box'
+    native = [
+        (
+            'git -C "$task_source/core" apply "$task_root/deploy/hiddify/clash-user.patch"',
+            "experimental/clashapi/trafficontrol/xui_panel_test.go",
+        ),
+        (
+            'git -C "$task_source/core" apply "$task_root/deploy/hiddify/sniff-override.patch"',
+            "route/rule/xui_panel_sniff_test.go",
+        ),
+        (
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/http1-options.patch"',
+            "option/xui_panel_http1_test.go",
+        ),
+        (
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/hysteria-safety.patch"',
+            "protocol/hysteria2/inbound.go",
+        ),
+        (
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/inbound-finalmask.patch"\\n'
+            'python3 "$task_root/tools/rebase-panel-inbound-finalmask.py" "$task_source/core/hiddify-sing-box"',
+            "xui_inbound_finalmask_test.go",
+        ),
+        (
+            'python3 "$task_root/tools/rebase-panel-ciphers.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/explicit-cipher-suites.patch"',
+            "common/tls/xui_explicit_ciphers_test.go",
+        ),
+        (
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/stream-handshake.patch"',
+            "transport/trojan/xui_stream_test.go",
+        ),
+        (
+            'python3 "$task_root/tools/rebase-panel-vless-handshake.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/vless-handshake.patch"',
+            "protocol/vless/h_handshake_close_once_test.go",
+        ),
+    ]
+    for application, test_path in native:
+        if script.count(application) != 1:
+            raise ValueError("Native integration overlay moved; manual review: " + test_path)
+        check = (
+            'test -f "' + root + '/' + test_path + '" || '
+            '{ echo "Missing native regression/evidence: ' + test_path + '" >&2; exit 1; }'
+        )
+        script = script.replace(application, check)
+    # Keep the tests in the native repository as the source of truth, not copies
+    # injected from the old panel templates (which could overwrite new tests).
+    native_tests = [
+        ("inbound_finalmask_test.go.in", "xui_inbound_finalmask_test.go"),
+        ("http1_options_test.go.in", "option/xui_panel_http1_test.go"),
+        ("clash_user_test.go.in", "experimental/clashapi/trafficontrol/xui_panel_test.go"),
+        ("sniff_override_test.go.in", "route/rule/xui_panel_sniff_test.go"),
+        ("stream_upgrade_test.go.in", "transport/v2rayhttpupgrade/xui_stream_test.go"),
+        ("stream_trojan_test.go.in", "transport/trojan/xui_stream_test.go"),
+        ("explicit_cipher_suites_test.go.in", "common/tls/xui_explicit_ciphers_test.go"),
+        ("vless_handshake_test.go.in", "protocol/vless/xui_handshake_test.go"),
+    ]
+    for template, native_path in native_tests:
+        expression = re.compile(
+            r'(?m)^cp(?: --)? "?\\$task_root/deploy/hiddify/' + re.escape(template) +
+            r'"? "?\\$task_source/core/hiddify-sing-box/' + re.escape(native_path) + r'"?
+    core_sha = os.environ["KERNEL_COMMIT"]
+    channel = os.environ["KERNEL_CHANNEL"]
+    if not re.fullmatch(r"[0-9a-f]{40}", core_sha):
+        raise ValueError("Invalid kernel revision")
+    if channel not in {"dev", "stable"}:
+        raise ValueError("Invalid release channel")
+    if command("git", "rev-parse", "HEAD") != core_sha:
+        raise ValueError("Checked-out kernel is not the triggering commit")
+    pinned_sing_sha, ray_sha = gitlink("hiddify-sing-box"), gitlink("ray2sing")
+    # CI resolves the current fork revision once per workflow, so both
+    # architectures use identical sources. Local builds retain the gitlink.
+    sing_sha = os.environ.get("SINGBOX_COMMIT") or pinned_sing_sha
+    if not re.fullmatch(r"[0-9a-f]{40}", sing_sha):
+        raise ValueError("Invalid Sing-box revision")
+
+    module = Path("go.mod").read_text()
+    prepare_runtime_dependencies(panel, module)
+    xray_version = configure_panel_xray_dependency(panel, module)
+    configure_panel_utls_checkout(panel, module)
+    configure_panel_inbound_finalmask_rebase(panel)
+    configure_panel_kcp_finalmask_interop(panel)
+    configure_panel_masque_rebase(panel)
+    configure_panel_protection_rebase(panel)
+    configure_panel_cipher_rebase(panel)
+    configure_panel_transport_rebase(panel)
+    configure_panel_vless_reverse_rebase(panel)
+    # Refresh reverse tests copied from the maintained 3x-ui panel repository.
+    # The new lifecycle requires a scope argument; adapter.V2RayServer no longer
+    # exports Close(), and the fixture never starts that server.
+    reverse_test = panel / "deploy/hiddify/reverse_runtime_test.go.in"
+    reverse_source = reverse_test.read_text()
+    old_start = "bridge.(adapter.Lifecycle).Start(adapter.StartStatePostStart)"
+    old_close = "\tdefer api.Close()"
+    if reverse_source.count(old_start) != 1 or reverse_source.count(old_close) != 1:
+        raise ValueError("Reverse runtime tests changed, manual lifecycle review required")
+    reverse_source = reverse_source.replace(old_start, "bridge.(adapter.Lifecycle).Start(adapter.StartStatePostStart, nil)")
+    reverse_source = reverse_source.replace(old_close, "\t// The V2RayServer is not independently started; no Close lifecycle on interface.")
+    reverse_test.write_text(reverse_source)
+    configure_panel_vless_handshake_rebase(panel)
+    configure_native_overlay_canary(panel)
+
+    lock_file = panel / "deploy/hiddify/hiddify-core-target.json"
+    lock = json.loads(lock_file.read_text())
+    configure_panel_owned_parser(panel, lock)
+    go_version = re.search(r"(?m)^go (\d+\.\d+(?:\.\d+)?)$", module)
+    if go_version is None:
+        raise ValueError("Missing core Go toolchain")
+    lock["panel_build"]["toolchain"] = "go" + go_version.group(1)
+    lock["panel_build"]["protection_dependency_versions"]["github.com/xtls/xray-core"] = xray_version
+    refresh_go_module_source_check(lock, module)
+    refresh_awg_peer_source_check(lock)
+    refresh_xdrive_source_check(lock)
+    refresh_panel_verifier_toolchain_check(panel, lock)
+    # The fork migrated NewRuleAction(ctx, logger, action) to
+    # NewRuleAction(logger, action); preserve the panel sniff regression.
+    sniff_test = panel / "deploy/hiddify/sniff_override_test.go.in"
+    sniff_source = sniff_test.read_text()
+    old = "NewRuleAction(context.Background(), nil, options)"
+    if sniff_source.count(old) != 1 or '"context"' not in sniff_source:
+        raise ValueError("Unexpected panel sniff test call signature")
+    sniff_source = sniff_source.replace(old, "NewRuleAction(nil, options)")
+    sniff_source = sniff_source.replace('    "context"\n', "")
+    sniff_test.write_text(sniff_source)
+    # mKCP is built into the newer fork behind its native feature tag.
+    # Keep the panel's legacy interoperability tests and runtime in sync.
+    tags = lock["panel_build"]["tags"]
+    if "with_kcp" not in tags:
+        tags.append("with_kcp")
+    runtime = panel / "internal/hiddify/process.go"
+    text = runtime.read_text()
+    marker = "var requiredBuildTags = []string{"
+    if text.count(marker) != 1:
+        raise ValueError("Cannot find panel runtime build tags")
+    line_start = text.index(marker)
+    line_end = text.index("}", line_start)
+    tag_line = text[line_start:line_end]
+    if '"with_kcp"' not in tag_line:
+        text = text[:line_end] + ', "with_kcp"' + text[line_end:]
+        runtime.write_text(text)
+    target = lock["target"]
+    if target["repository"] != "https://github.com/SawaMEN/hiddify-core":
+        raise ValueError("Unexpected kernel repository")
+    # Panel's current lock can use -maskN in addition to older -panelN.
+    # Keep the exact suffix so all release assets agree on their identity.
+    suffix = patch_profile_suffix(target["version"])
+    prefix = "sawamen-dev" if channel == "dev" else "sawamen"
+    version = f"{prefix}-{core_sha[:12]}-{sing_sha[:12]}{suffix}"
+    target["commit"] = core_sha
+    target["version"] = version
+    target["submodules"]["hiddify-sing-box"] = sing_sha
+    target["submodules"]["ray2sing"] = ray_sha
+    lock["panel_build"]["sing_box_version"] = "sawamen-" + sing_sha[:12]
+    lock_file.write_text(json.dumps(lock, ensure_ascii=False, indent=2) + "\n")
+
+    profile_file = panel / "internal/hiddify/translate.go"
+    profile = profile_file.read_text()
+    for name, value in (("TargetVersion", version), ("TargetRevision", core_sha)):
+        expression = r'(?m)^([ \t]*' + name + r'[ \t]*=[ \t]*)"[^"\n]+"'
+        profile, count = re.subn(expression, lambda m: m.group(1) + '"' + value + '"', profile)
+        if count != 1:
+            raise ValueError("Cannot set " + name)
+    profile_file.write_text(profile)
+    print(f"Kernel channel={channel} version={version} commit={core_sha}; Sing-box={sing_sha}; ray2sing={ray_sha}")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("usage: prepare-panel-kernel.py PANEL_CHECKOUT")
+    prepare(Path(sys.argv[1]))
+
+        )
+        script, count = expression.subn(
+            'test -f "' + root + '/' + native_path + '"', script
+        )
+        if count != 1:
+            raise ValueError("Cannot replace legacy test template: " + template)
+    build.write_text(script)
+
 def prepare(panel):
     core_sha = os.environ["KERNEL_COMMIT"]
     channel = os.environ["KERNEL_CHANNEL"]

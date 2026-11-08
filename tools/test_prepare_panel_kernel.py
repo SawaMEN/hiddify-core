@@ -72,27 +72,27 @@ class ModuleSourceCheckTest(unittest.TestCase):
             )
 
 
-class PanelAuditToolchainTest(unittest.TestCase):
-    def test_rebases_exact_audit_pin_to_core_toolchain(self):
+class PanelVerifierToolchainTest(unittest.TestCase):
+    def test_rebases_exact_verifier_pin_to_core_toolchain(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
-            audit = folder / "tools/audit-hiddify-migration.py"
+            audit = folder / "tools/verify-hiddify-build.py"
             audit.parent.mkdir()
             audit.write_text('require(build["toolchain"] == "go1.26.9", "Runtime must use the pinned security-patched toolchain")\\n')
-            prepare.refresh_panel_audit_toolchain_check(folder, {"panel_build": {"toolchain": "go1.26.10"}})
+            prepare.refresh_panel_verifier_toolchain_check(folder, {"panel_build": {"toolchain": "go1.26.10"}})
             self.assertIn('build["toolchain"] == "go1.26.10"', audit.read_text())
             self.assertNotIn('build["toolchain"] == "go1.26.9"', audit.read_text())
 
-    def test_refuses_unknown_audit_check_or_toolchain(self):
+    def test_refuses_unknown_verifier_check_or_toolchain(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
-            audit = folder / "tools/audit-hiddify-migration.py"
+            audit = folder / "tools/verify-hiddify-build.py"
             audit.parent.mkdir()
             audit.write_text("unknown runtime audit")
             with self.assertRaises(ValueError):
-                prepare.refresh_panel_audit_toolchain_check(folder, {"panel_build": {"toolchain": "go1.26.10"}})
+                prepare.refresh_panel_verifier_toolchain_check(folder, {"panel_build": {"toolchain": "go1.26.10"}})
             with self.assertRaises(ValueError):
-                prepare.refresh_panel_audit_toolchain_check(folder, {"panel_build": {"toolchain": "unknown"}})
+                prepare.refresh_panel_verifier_toolchain_check(folder, {"panel_build": {"toolchain": "unknown"}})
 
 
 class AWGSourceEvidenceTest(unittest.TestCase):

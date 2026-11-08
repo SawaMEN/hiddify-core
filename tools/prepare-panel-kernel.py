@@ -198,22 +198,22 @@ def refresh_xdrive_source_check(lock):
     check["contains"] = new_evidence
 
 
-def refresh_panel_audit_toolchain_check(panel, lock):
-    """Pin the panel's disposable runtime audit to the checked-out core Go version."""
+def refresh_panel_verifier_toolchain_check(panel, lock):
+    """Update the actual panel runtime verifier for the checked-out core Go version."""
     toolchain = lock["panel_build"]["toolchain"]
     if not re.fullmatch(r"go[0-9]+\.[0-9]+(?:\.[0-9]+)?", toolchain):
         raise ValueError("Invalid runtime audit toolchain")
-    audit_file = panel / "tools/audit-hiddify-migration.py"
-    audit = audit_file.read_text()
+    verifier_file = panel / "tools/verify-hiddify-build.py"
+    verifier = verifier_file.read_text()
     check = r'require\(build\["toolchain"\] == "go[0-9]+\.[0-9]+(?:\.[0-9]+)?", "Runtime must use the pinned security-patched toolchain"\)'
     updated, count = re.subn(
         check,
         'require(build["toolchain"] == "' + toolchain + '", "Runtime must use the pinned security-patched toolchain")',
-        audit,
+        verifier,
     )
     if count != 1:
         raise ValueError("Cannot update panel runtime audit toolchain check")
-    audit_file.write_text(updated)
+    verifier_file.write_text(updated)
 
 
 def patch_profile_suffix(version):
@@ -351,11 +351,11 @@ def configure_panel_xray_dependency(panel, module):
     if script.count(previous) != 2:
         raise ValueError("Unexpected panel Xray download and copy paths")
     build.write_text(script.replace(previous, "github.com/xtls/xray-core@" + version))
-    audit_file = panel / "tools/audit-hiddify-migration.py"
-    audit = audit_file.read_text()
-    if audit.count(old_version) != 1:
+    verifier_file = panel / "tools/verify-hiddify-build.py"
+    verifier = verifier_file.read_text()
+    if verifier.count(old_version) != 1:
         raise ValueError("Unexpected Xray pin in panel runtime audit")
-    audit_file.write_text(audit.replace(old_version, version))
+    verifier_file.write_text(verifier.replace(old_version, version))
 
     # Xray 26.10 implemented the old mux fixes natively: PacketReader now
     # retains the destination by value, and SessionManager.Allocate installs
@@ -435,7 +435,7 @@ def prepare(panel):
     refresh_go_module_source_check(lock, module)
     refresh_awg_peer_source_check(lock)
     refresh_xdrive_source_check(lock)
-    refresh_panel_audit_toolchain_check(panel, lock)
+    refresh_panel_verifier_toolchain_check(panel, lock)
     # The fork migrated NewRuleAction(ctx, logger, action) to
     # NewRuleAction(logger, action); preserve the panel sniff regression.
     sniff_test = panel / "deploy/hiddify/sniff_override_test.go.in"

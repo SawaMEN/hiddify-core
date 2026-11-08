@@ -22,6 +22,10 @@ class ReleaseProfileTest(unittest.TestCase):
         self.assertEqual("-panel9-ciphers2", prepare.patch_profile_suffix(
             "sawamen-3d4ee155c924-244e333149ec-panel9-ciphers2"))
 
+    def test_preserves_current_security_stream_mask_profile(self):
+        current = "sawamen-b310097c8e7a-338f0c9457a4-mask1-ciphers1-net62-sec1-stream1"
+        self.assertEqual("-mask1-ciphers1-net62-sec1-stream1", prepare.patch_profile_suffix(current))
+
     def test_retains_legacy_panel_profile(self):
         self.assertEqual("-panel9", prepare.patch_profile_suffix(
             "sawamen-3d4ee155c924-244e333149ec-panel9"))

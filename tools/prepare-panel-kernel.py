@@ -220,9 +220,9 @@ def patch_profile_suffix(version):
     """Preserve known numbered panel/mask and optional cipher profiles."""
     if not isinstance(version, str):
         raise ValueError("Invalid patch profile")
-    match = re.search(r"(-(?:panel|mask)[0-9]+(?:-ciphers[0-9]+)?)$", version)
+    match = re.search(r"(-(?:panel|mask)[0-9]+(?:-ciphers[0-9]+)?(?:-net[0-9]+)?(?:-sec[0-9]+)?(?:-stream[0-9]+)?)$", version)
     if not match:
-        raise ValueError("Cannot determine patch profile (expected -panelN or -maskN)")
+        raise ValueError("Cannot determine patch profile (expected -panelN or -maskN with known suffixes)")
     return match.group(1)
 
 

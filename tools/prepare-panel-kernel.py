@@ -424,7 +424,7 @@ def prepare(panel):
     reverse_test.write_text(reverse_source)
     configure_panel_vless_handshake_rebase(panel)
 
-    lock_file = panel / "docs/hiddify-core-target.json"
+    lock_file = panel / "deploy/hiddify/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
     configure_panel_owned_parser(panel, lock)
     go_version = re.search(r"(?m)^go (\d+\.\d+(?:\.\d+)?)$", module)

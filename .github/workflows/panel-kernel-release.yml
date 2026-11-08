@@ -151,7 +151,7 @@ jobs:
       - name: Build Android AAR and root executable
         run: |
           set -euo pipefail
-          version=$(python3 -c 'import json; print(json.load(open("panel-source/docs/hiddify-core-target.json"))["target"]["version"])')
+          version=$(python3 -c 'import json; print(json.load(open("panel-source/deploy/hiddify/hiddify-core-target.json"))["target"]["version"])')
           sing=$(git -C hiddify-sing-box rev-parse HEAD | cut -c 1-12)
           # Resolve transitive module sums for the selected Sing-box revision before gomobile.
           go mod tidy
@@ -179,7 +179,7 @@ jobs:
               raise SystemExit("Android root companion must be ARM64 ELF PIE")
           shutil.copyfile(aar, folder/"hiddify-core.aar")
           shutil.copyfile(companion, folder/"libhiddify-root.so")
-          manifest = json.loads(pathlib.Path("panel-source/docs/hiddify-core-target.json").read_text())
+          manifest = json.loads(pathlib.Path("panel-source/deploy/hiddify/hiddify-core-target.json").read_text())
           manifest["android_build"] = {"platform": "android", "arch": "arm64"}
           (folder/"target.json").write_text(json.dumps(manifest, indent=2) + "\n")
           PY

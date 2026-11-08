@@ -310,15 +310,15 @@ def configure_panel_kcp_finalmask_interop(panel):
         raise ValueError("Cannot find panel transport test invocation")
     script = script.replace(old_run, new_run)
     original_check = (
-        'CGO_ENABLED="$task_cgo" GOTOOLCHAIN="${target[5]}" go test '
-        '-ldflags "$task_link_flags" -tags "${target[3]}" '
-        "github.com/sagernet/sing-box -run '^TestXUIPanelInboundFinalMask' -count=1"
+        'CGO_ENABLED=0 GOTOOLCHAIN="${target[5]}" go test '
+        '-ldflags "$task_test_link_flags" -tags "$task_test_tags" '
+        "github.com/sagernet/sing-box -run '^TestXUIPanelInboundFinalMask' -count=1 -timeout=60s"
     )
     if script.count(original_check) != 1:
         raise ValueError("Cannot find root FinalMask regression")
     native_check = (
-        'CGO_ENABLED="$task_cgo" GOTOOLCHAIN="${target[5]}" go test '
-        '-ldflags "$task_link_flags" -tags "${target[3]}" '
+        'CGO_ENABLED=0 GOTOOLCHAIN="${target[5]}" go test '
+        '-ldflags "$task_test_link_flags" -tags "$task_test_tags" '
         "github.com/sagernet/sing-box -run '^TestH_(XrayKCP|KCPWithTLS)$' -count=1 -timeout=180s"
     )
     script = script.replace(original_check, native_check + "\n    " + original_check)

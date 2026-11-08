@@ -63,6 +63,12 @@ jobs:
           tags=$(make -s print-NATIVE_TEST_TAGS)
           go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" ./v2/config/... ./platform/mobile
           (cd ray2sing && go test -mod=readonly -ldflags=-checklinkname=0 ./ray2sing/... ./ray2sing_test/...)
+      - name: Native panel protocol and transport regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" github.com/sagernet/sing-box/common/tls github.com/sagernet/sing-box/protocol/vless github.com/sagernet/sing-box/protocol/group github.com/sagernet/sing-box/transport/v2rayxhttp github.com/sagernet/sing-box/transport/v2raykcp -run '^Test(XUIPanel|H_KCP)' -count=1 -timeout=10m
       - name: Native vet
         shell: bash
         run: |

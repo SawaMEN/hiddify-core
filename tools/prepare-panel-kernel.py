@@ -383,6 +383,49 @@ def configure_panel_xray_dependency(panel, module):
     return version
 
 
+
+def configure_native_overlay_canary(panel):
+    """Probe the native sing-box candidate without reapplying completed overlays.
+
+    Only the isolated draft core PR uses this; the published 3x-ui builder is
+    unchanged. Every disabled overlay requires a native source regression check.
+    Remaining incomplete overlays and all security verification still execute.
+    """
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    native = (
+        ('git -C "$task_source/core" apply "$task_root/deploy/hiddify/clash-user.patch"',
+         "experimental/clashapi/trafficontrol/xui_panel_test.go"),
+        ('git -C "$task_source/core" apply "$task_root/deploy/hiddify/sniff-override.patch"',
+         "route/rule/xui_panel_sniff_test.go"),
+        ('git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/http1-options.patch"',
+         "option/xui_panel_http1_test.go"),
+        ('git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/hysteria-safety.patch"',
+         "protocol/hysteria2/inbound.go"),
+        ('git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/inbound-finalmask.patch"',
+         "xui_inbound_finalmask_test.go"),
+        ('python3 "$task_root/tools/rebase-panel-ciphers.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/explicit-cipher-suites.patch"',
+         "common/tls/xui_explicit_ciphers_test.go"),
+        ('git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/stream-handshake.patch"',
+         "transport/trojan/xui_stream_test.go"),
+        ('python3 "$task_root/tools/rebase-panel-vless-handshake.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/vless-handshake.patch"',
+         "protocol/vless/h_handshake_close_once_test.go"),
+    )
+    for application, regression in native:
+        if script.count(application) != 1:
+            raise ValueError("Unexpected native overlay application: " + regression)
+        check = (
+            'test -f "$task_source/core/hiddify-sing-box/' + regression +
+            '" || { echo "Missing native regression: ' + regression + '" >&2; exit 1; }'
+        )
+        script = script.replace(application, check)
+    # The old post-apply API adapter would modify already-native FinalMask.
+    old_rebase = 'python3 "$task_root/tools/rebase-panel-inbound-finalmask.py" "$task_source/core/hiddify-sing-box"'
+    if script.count(old_rebase) != 1:
+        raise ValueError("FinalMask legacy rebase moved")
+    script = script.replace(old_rebase, ': # native FinalMask; no legacy rebase')
+    build.write_text(script)
+
 def prepare(panel):
     core_sha = os.environ["KERNEL_COMMIT"]
     channel = os.environ["KERNEL_CHANNEL"]
@@ -423,6 +466,7 @@ def prepare(panel):
     reverse_source = reverse_source.replace(old_close, "\t// The V2RayServer is not independently started; no Close lifecycle on interface.")
     reverse_test.write_text(reverse_source)
     configure_panel_vless_handshake_rebase(panel)
+    configure_native_overlay_canary(panel)
 
     lock_file = panel / "deploy/hiddify/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())

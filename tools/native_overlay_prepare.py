@@ -70,4 +70,11 @@ def rewrite(panel):
     once('  GOTOOLCHAIN="${target[5]}" go mod edit -replace github.com/xtls/xray-core=./xui-dependencies/xray-core\n', '')
     if "xui-dependencies" in script:
         raise ValueError("Legacy module cache overlays remain")
-    return path, script, once
+    for gate in ('go mod download "${security_dependencies[@]}"',
+                 'python3 "$task_root/tools/verify-hiddify-build.py" --upstream',
+                 'python3 "$task_root/tools/rebase-panel-masque.py"',
+                 "go mod tidy", "go build -buildvcs=true"):
+        if gate not in script:
+            raise ValueError("Mandatory release or security gate missing: " + gate)
+    path.write_text(script)
+    return len(required) + len(tests)

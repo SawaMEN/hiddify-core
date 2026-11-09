@@ -68,12 +68,31 @@ jobs:
           go test -mod=readonly -ldflags=-checklinkname=0 \
             github.com/hiddify/ray2sing/ray2sing/... \
             github.com/hiddify/ray2sing/ray2sing_test/...
-      - name: Native panel protocol and transport regressions
+      - name: Native overlay behavior regressions (including reverse, Vision, REALITY and XHTTP)
         shell: bash
         run: |
           set -euo pipefail
           tags=$(make -s print-NATIVE_TEST_TAGS)
-          go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" github.com/sagernet/sing-box/common/tls github.com/sagernet/sing-box/protocol/vless github.com/sagernet/sing-box/protocol/group github.com/sagernet/sing-box/transport/v2rayxhttp github.com/sagernet/sing-box/transport/v2raykcp -run '^Test(XUIPanel|H_KCP)' -count=1 -timeout=10m
+          # Match ALL native TestXUI cases, not only TestXUIPanel: the previous
+          # expression silently excluded VLESS reverse and XHTTP upload queue.
+          # Run vendored sing-vmess through the parent module's pinned graph.
+          go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" \
+            github.com/sagernet/sing-box/common/tls \
+            github.com/sagernet/sing-box/protocol/vless \
+            github.com/sagernet/sing-box/protocol/group \
+            github.com/sagernet/sing-box/transport/v2rayxhttp \
+            github.com/sagernet/sing-box/transport/v2raykcp \
+            github.com/sagernet/sing-vmess/vless \
+            -run '^(TestXUI|TestH_KCP|TestH_Vision)' -count=1 -timeout=15m
+      - name: Native Xray balancer and mKCP compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" \
+            github.com/xtls/xray-core/app/router \
+            github.com/xtls/xray-core/transport/internet/kcp \
+            -run '^Test' -count=1 -timeout=15m
       - name: Native vet
         shell: bash
         run: |

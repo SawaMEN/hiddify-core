@@ -89,8 +89,24 @@ jobs:
         run: |
           set -euo pipefail
           tags=$(make -s print-NATIVE_TEST_TAGS)
+          # The upstream router's full suite assumes its own resources/geosite.dat
+          # fixture, which is not included in the vendored production module.
+          # Validate the actual native observer/leastLoad adapter and compile the
+          # pinned upstream router instead of running unrelated geodata tests.
           go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" \
-            github.com/xtls/xray-core/app/router \
+            github.com/sagernet/sing-box/common/xray \
+            github.com/sagernet/sing-box/option \
+            -run '^(TestH_NativeXrayRuntime|TestXUI)' -count=1 -timeout=5m
+          go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" \
+            github.com/xtls/xray-core/app/router -run '^
+      - name: Native vet
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=$(make -s print-NATIVE_TEST_TAGS)
+          go vet -mod=readonly -tags "$tags" ./v2/...
+
+          go test -mod=readonly -ldflags=-checklinkname=0 -tags "$tags" \
             github.com/xtls/xray-core/transport/internet/kcp \
             -run '^Test' -count=1 -timeout=15m
       - name: Native vet

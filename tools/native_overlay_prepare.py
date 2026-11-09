@@ -41,4 +41,21 @@ def rewrite(panel):
         if "xui-dependencies/" in command and command not in script:
             continue
         once(command, native_check(evidence))
+    tests = {
+        "inbound_finalmask_test.go.in": "xui_inbound_finalmask_test.go",
+        "http1_options_test.go.in": "option/xui_panel_http1_test.go",
+        "clash_user_test.go.in": "experimental/clashapi/trafficontrol/xui_panel_test.go",
+        "sniff_override_test.go.in": "route/rule/xui_panel_sniff_test.go",
+        "stream_upgrade_test.go.in": "transport/v2rayhttpupgrade/xui_stream_test.go",
+        "stream_trojan_test.go.in": "transport/trojan/xui_stream_test.go",
+        "explicit_cipher_suites_test.go.in": "common/tls/xui_explicit_ciphers_test.go",
+        "vless_handshake_test.go.in": "protocol/vless/xui_handshake_test.go",
+        "reverse_vision_test.go.in": "third_party/sing-vmess/vless/xui_reverse_native_test.go",
+        "reverse_runtime_test.go.in": "protocol/vless/xui_reverse_native_test.go",
+        "xhttp_extension_test.go.in": "transport/v2rayxhttp/xui_upload_queue_native_test.go",
+        "balancer_strategy_test.go.in": "protocol/group/xui_balancer_test.go",
+        "reality_protection_test.go.in": "common/tls/xui_reality_mldsa_handshake_test.go",
+        "vision_preconnect_test.go.in": "protocol/vless/xui_preconnect_test.go",
+        "vision_padding_test.go.in": "protocol/vless/xui_vision_testseed_native_test.go",
+    }
     return path, script, once

@@ -4,7 +4,6 @@
 The core release workflow checks out SawaMEN/3x-ui for overlays, then rewrites
 only this disposable checkout's manifest and expected process identity.
 """
-import difflib
 import json
 import os
 from pathlib import Path
@@ -111,40 +110,24 @@ def configure_panel_vless_handshake_rebase(panel):
 
 
 def prepare_runtime_dependencies(panel, module):
-    """Rebase the panel's additive dependency overlay onto this exact core."""
-    patch = panel / "deploy/hiddify/runtime-dependencies.patch"
-    source = patch.read_text()
-    if not source.startswith("--- a/go.mod\n+++ b/go.mod\n"):
-        raise ValueError("Unexpected runtime dependency overlay target")
-    additions = []
-    for line in source.splitlines():
-        if line.startswith("-") and not line.startswith("--- "):
-            raise ValueError("Runtime dependency overlay must only add requirements")
-        if not line.startswith("+") or line.startswith("+++ "):
-            continue
-        match = re.fullmatch(r"\+\s*([A-Za-z0-9._~/-]+) (v[^\s]+)(?: // indirect)?", line)
-        if not match:
-            raise ValueError("Unexpected runtime dependency overlay change")
-        name, version = match.groups()
-        if not re.search(r"(?m)^\s*" + re.escape(name) + r"\s+", module):
-            additions.append(f"\t{name} {version} // indirect\n")
-    updated = module
-    if additions:
-        if "require (\n" not in module:
-            raise ValueError("Missing core requirement block")
-        updated = module.replace("require (\n", "require (\n" + "".join(additions), 1)
-    patch.write_text("".join(difflib.unified_diff(
-        module.splitlines(keepends=True), updated.splitlines(keepends=True),
-        fromfile="a/go.mod", tofile="b/go.mod",
-    )))
-    # An already satisfied overlay is empty and needs no git apply invocation.
+    """Require reviewed dependencies in the native module, without a no-op patch."""
+    required = (
+        "github.com/apernet/quic-go",
+        "github.com/juju/ratelimit",
+        "github.com/xtls/reality",
+    )
+    for name in required:
+        if not re.search(r"(?m)^\s*" + re.escape(name) + r"\s+v\S+", module):
+            raise ValueError("Native core is missing reviewed dependency: " + name)
     build = panel / "tools/build-hiddify-core.sh"
     script = build.read_text()
-    command = 'git -C "$task_source/core" apply "$task_root/deploy/hiddify/runtime-dependencies.patch"'
-    if script.count(command) != 1:
-        raise ValueError("Cannot locate runtime dependency overlay application")
-    script = script.replace(command, '[ ! -s "$task_root/deploy/hiddify/runtime-dependencies.patch" ] || ' + command)
-    build.write_text(script)
+    old = 'git -C "$task_source/core" apply "$task_root/deploy/hiddify/runtime-dependencies.patch"'
+    new = ': # reviewed runtime dependencies are already in native core/go.mod'
+    if script.count(old) == 1 and new not in script:
+        build.write_text(script.replace(old, new, 1))
+    elif script.count(new) != 1 or old in script:
+        raise ValueError("Unexpected native core dependency integration point")
+    # No overlay file is read or applied, even with an older panel checkout.
 
 
 def refresh_go_module_source_check(lock, module):
@@ -278,53 +261,45 @@ def configure_panel_owned_parser(panel, lock):
 
 
 def configure_panel_kcp_finalmask_interop(panel):
-    """Use maintained native KCP and FinalMask tests, not the removed legacy KCP API."""
-    test = panel / "deploy/hiddify/kcp_transport_test.go.in"
-    source = test.read_text()
-    for obsolete in (
-        "option.V2RayKCPOptions{Legacy: true, Header: header, Seed: seed}",
-        "config, masks, err := buildOptions(o)",
-    ):
-        if source.count(obsolete) != 1:
-            raise ValueError("Unexpected change in obsolete Xray KCP test fixture")
+    """Verify native KCP regressions; never inject the deleted API fixture."""
     build = panel / "tools/build-hiddify-core.sh"
     script = build.read_text()
     obsolete_copy = (
         'cp "$task_root/deploy/hiddify/kcp_transport_test.go.in" '
         '"$task_source/core/hiddify-sing-box/transport/v2raykcp/xui_kcp_test.go"'
     )
-    if script.count(obsolete_copy) != 1:
-        raise ValueError("Missing legacy mKCP test injection")
-    # The new engine implements Xray's mKCP settings through the native
-    # V2RayKCPOptions and finalmask mkcp-legacy. The old panel test initializes
-    # deleted fields and buildOptions; its assertions are not applicable.
-    # Keep the native maintained tests that exercise concurrent KCP round trips,
-    # TLS and the Xray+FinalMask combinations.
-    script = script.replace(
-        obsolete_copy,
+    native_checks = (
         'test -f "$task_source/core/hiddify-sing-box/transport/v2raykcp/h_kcp_test.go"\n'
-        'test -f "$task_source/core/hiddify-sing-box/h_xray_kcp_test.go"',
+        'test -f "$task_source/core/hiddify-sing-box/h_xray_kcp_test.go"'
     )
+    if script.count(obsolete_copy) == 1 and native_checks not in script:
+        script = script.replace(obsolete_copy, native_checks, 1)
+    elif script.count(native_checks) != 1 or obsolete_copy in script:
+        raise ValueError("Native KCP source checks are missing or ambiguous")
     old_run = ("github.com/sagernet/sing-box/transport/v2raykcp "
                "github.com/sagernet/sing-box/transport/v2rayxhttp "
                "github.com/sagernet/sing-box/protocol/group -run '^TestXUIPanel'")
     new_run = old_run.replace("-run '^TestXUIPanel'", "-run '^Test(XUIPanel|H_KCP)'")
-    if script.count(old_run) != 1:
-        raise ValueError("Cannot find panel transport test invocation")
-    script = script.replace(old_run, new_run)
-    original_check = (
+    if script.count(old_run) == 1 and new_run not in script:
+        script = script.replace(old_run, new_run, 1)
+    elif script.count(new_run) != 1 or old_run in script:
+        raise ValueError("Native KCP integration test invocation is missing")
+    original = (
         'CGO_ENABLED=0 GOTOOLCHAIN="${target[5]}" go test '
         '-ldflags "$task_test_link_flags" -tags "$task_test_tags" '
         "github.com/sagernet/sing-box -run '^TestXUIPanelInboundFinalMask' -count=1 -timeout=60s"
     )
-    if script.count(original_check) != 1:
-        raise ValueError("Cannot find root FinalMask regression")
-    native_check = (
+    native = (
         'CGO_ENABLED=0 GOTOOLCHAIN="${target[5]}" go test '
         '-ldflags "$task_test_link_flags" -tags "$task_test_tags" '
         "github.com/sagernet/sing-box -run '^TestH_(XrayKCP|KCPWithTLS)$' -count=1 -timeout=180s"
     )
-    script = script.replace(original_check, native_check + "\n    " + original_check)
+    if script.count(original) != 1:
+        raise ValueError("Missing panel FinalMask native regression")
+    if script.count(native) == 0:
+        script = script.replace(original, native + "\n    " + original, 1)
+    elif script.count(native) != 1:
+        raise ValueError("Duplicate KCP native regression")
     build.write_text(script)
 
 

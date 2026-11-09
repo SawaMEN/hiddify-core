@@ -169,44 +169,32 @@ class XDriveSourceEvidenceTest(unittest.TestCase):
             ]})
 
 
-class DependencyOverlayTest(unittest.TestCase):
-    def fixture(self, folder, patch):
+class NativeDependenciesTest(unittest.TestCase):
+    def fixture(self, folder):
         panel = folder / "panel"
-        (panel / "deploy/hiddify").mkdir(parents=True)
-        (panel / "tools").mkdir()
-        (panel / "deploy/hiddify/runtime-dependencies.patch").write_text(patch)
+        (panel / "tools").mkdir(parents=True)
         (panel / "tools/build-hiddify-core.sh").write_text(
             'git -C "$task_source/core" apply "$task_root/deploy/hiddify/runtime-dependencies.patch"\n')
         return panel
 
-    def test_rebases_changed_context_and_keeps_newer_existing_version(self):
-        patch = "--- a/go.mod\n+++ b/go.mod\n@@ -2,2 +2,4 @@\n require (\n+\texample.com/new v1.0.0 // indirect\n+\texample.com/existing v1.0.0 // indirect\n \texample.com/old v1.0.0 // indirect\n"
-        module = "module example.com/core\n\nrequire (\n\texample.com/old v2.0.0 // indirect\n\texample.com/existing v2.0.0 // indirect\n)\n"
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp)
-            panel = self.fixture(folder, patch)
-            prepare.prepare_runtime_dependencies(panel, module)
-            (folder / "go.mod").write_text(module)
-            rebased = panel / "deploy/hiddify/runtime-dependencies.patch"
-            subprocess.run(["git", "apply", str(rebased)], cwd=folder, check=True)
-            actual = (folder / "go.mod").read_text()
-            self.assertIn("example.com/new v1.0.0", actual)
-            self.assertIn("example.com/existing v2.0.0", actual)
-            self.assertNotIn("example.com/existing v1.0.0", actual)
+    def module(self):
+        return "module core\nrequire (\n\tgithub.com/apernet/quic-go v0.59.0\n\tgithub.com/juju/ratelimit v1.0.2\n\tgithub.com/xtls/reality v1.0.0\n)\n"
 
-    def test_satisfied_overlay_is_skipped(self):
-        patch = "--- a/go.mod\n+++ b/go.mod\n@@ -1 +1,2 @@\n require (\n+\texample.com/existing v1.0.0 // indirect\n"
+    def test_native_dependencies_eliminate_legacy_patch(self):
         with tempfile.TemporaryDirectory() as tmp:
-            panel = self.fixture(Path(tmp), patch)
-            prepare.prepare_runtime_dependencies(panel, "require (\n\texample.com/existing v2.0.0\n)\n")
-            self.assertEqual("", (panel / "deploy/hiddify/runtime-dependencies.patch").read_text())
-            self.assertTrue((panel / "tools/build-hiddify-core.sh").read_text().startswith('[ ! -s '))
+            panel = self.fixture(Path(tmp))
+            prepare.prepare_runtime_dependencies(panel, self.module())
+            script = (panel / "tools/build-hiddify-core.sh").read_text()
+            self.assertIn("reviewed runtime dependencies are already", script)
+            self.assertNotIn("runtime-dependencies.patch", script)
+            prepare.prepare_runtime_dependencies(panel, self.module())
 
-    def test_rejects_non_additive_overlay(self):
+    def test_missing_native_dependency_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            panel = self.fixture(Path(tmp), "--- a/go.mod\n+++ b/go.mod\n-\texample.com/existing v1.0.0\n")
+            panel = self.fixture(Path(tmp))
             with self.assertRaises(ValueError):
-                prepare.prepare_runtime_dependencies(panel, "require (\n)\n")
+                prepare.prepare_runtime_dependencies(panel, self.module().replace(
+                    "github.com/juju/ratelimit", "github.com/absent/dependency"))
 
 
 

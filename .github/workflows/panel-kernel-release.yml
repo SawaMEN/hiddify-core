@@ -80,6 +80,200 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           SINGBOX_CRONET_LINKAGE: purego
         run: bash panel-source/tools/build-hiddify-core.sh "$PWD/kernel-output"
+      - name: MASQUE HTTP/2 CONNECT-IP and shared speed broker TCP/UDP regression
+        if: matrix.arch == 'amd64'
+        env:
+          SINGBOX_TEST_BINARY: ${{ github.workspace }}/kernel-output/hiddify-core-linux-amd64
+          HIDDIFY_CONFIG_CHECK_BINARY: ${{ github.workspace }}/kernel-output/hiddify-core-linux-amd64
+        run: |
+          mkdir -p panel-source/internal/web/dist
+          touch panel-source/internal/web/dist/.gitkeep
+          cd panel-source
+          go test -race ./internal/singbox -run '^TestMASQUESpeedLimits        env:
+          KERNEL_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          tar -C kernel-output -czf "release-assets/sing-box-linux-$KERNEL_ARCH.tar.gz" \
+            "hiddify-core-linux-$KERNEL_ARCH" "hiddify-core-linux-$KERNEL_ARCH.sha256" \
+            libcronet.so libcronet.so.sha256 target.json
+          (cd release-assets && sha256sum "sing-box-linux-$KERNEL_ARCH.tar.gz" > "sing-box-linux-$KERNEL_ARCH.tar.gz.sha256")
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sing-box-linux-${{ matrix.arch }}
+          path: release-assets/*
+          if-no-files-found: error
+          compression-level: 0
+
+  build-android:
+    needs: resolve_singbox
+    name: Android ARM64 AAR and root companion
+    if: >-
+      (github.event_name == 'pull_request') ||
+      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/update'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Checkout matching Sing-box revision
+        env:
+          SINGBOX_COMMIT: ${{ needs.resolve_singbox.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ "$SINGBOX_COMMIT" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          git -C hiddify-sing-box fetch --no-tags --depth=1 origin "$SINGBOX_COMMIT"
+          git -C hiddify-sing-box checkout --detach --quiet FETCH_HEAD
+          test "$(git -C hiddify-sing-box rev-parse HEAD)" = "$SINGBOX_COMMIT"
+          git -C hiddify-sing-box submodule update --init --recursive --depth=1
+      - uses: actions/checkout@v7
+        with:
+          repository: SawaMEN/3x-ui
+          ref: main
+          path: panel-source
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 17
+      - name: Install Android SDK and NDK
+        run: |
+          set -euo pipefail
+          manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$manager" ] || manager=$(command -v sdkmanager)
+          "$manager" "ndk;30.0.16248370" "platforms;android-24"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - name: Set matching release version identity
+        env:
+          KERNEL_COMMIT: ${{ github.sha }}
+          KERNEL_CHANNEL: ${{ github.ref == 'refs/heads/main' && 'stable' || 'dev' }}
+          SINGBOX_COMMIT: ${{ needs.resolve_singbox.outputs.commit }}
+        run: python3 tools/prepare-panel-kernel.py panel-source
+      - name: Build Android AAR and root executable
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import json; print(json.load(open("panel-source/deploy/hiddify/hiddify-core-target.json"))["target"]["version"])')
+          sing=$(git -C hiddify-sing-box rev-parse HEAD | cut -c 1-12)
+          # Resolve transitive module sums for the selected Sing-box revision before gomobile.
+          go mod tidy
+          make android-arm64 CODE_VERSION="-X github.com/hiddify/hiddify-core/v2/hcommon/constants.Version=$version -X github.com/sagernet/sing-box/constant.Version=sawamen-$sing"
+          go run ./cmd/internal/build_root
+      - name: Package and validate mobile assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-android release-assets
+          python3 - <<'PY'
+          import json, pathlib, shutil, struct, zipfile
+          folder = pathlib.Path("release-android")
+          aar = pathlib.Path("bin/hiddify-core.aar")
+          companion = pathlib.Path("bin/libhiddify-root.so")
+          if not aar.is_file() or aar.stat().st_size < 100000:
+              raise SystemExit("Android AAR missing or empty")
+          with zipfile.ZipFile(aar) as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Android AAR corrupted")
+              if not any(x.startswith("jni/arm64-v8a/") and x.endswith(".so") for x in archive.namelist()):
+                  raise SystemExit("No ARM64 native library in Android AAR")
+          with companion.open("rb") as executable:
+              header = executable.read(20)
+          if len(header) != 20 or header[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<HH",header,16) != (3,183):
+              raise SystemExit("Android root companion must be ARM64 ELF PIE")
+          shutil.copyfile(aar, folder/"hiddify-core.aar")
+          shutil.copyfile(companion, folder/"libhiddify-root.so")
+          manifest = json.loads(pathlib.Path("panel-source/deploy/hiddify/hiddify-core-target.json").read_text())
+          manifest["android_build"] = {"platform": "android", "arch": "arm64"}
+          (folder/"target.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+          (cd release-android && sha256sum hiddify-core.aar libhiddify-root.so > SHA256SUMS)
+          tar -C release-android -czf release-assets/hiddify-core-android-arm64.tar.gz hiddify-core.aar libhiddify-root.so target.json SHA256SUMS
+          (cd release-assets && sha256sum hiddify-core-android-arm64.tar.gz > hiddify-core-android-arm64.tar.gz.sha256)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hiddify-core-android-arm64
+          path: |
+            release-assets/hiddify-core-android-arm64.tar.gz
+            release-assets/hiddify-core-android-arm64.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    name: Publish dev or stable release
+    needs: [build, build-android]
+    if: >-
+      always() &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/update' || github.ref == 'refs/heads/main') &&
+      needs.build.result == 'success' &&
+      needs.build-android.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: sing-box-linux-*
+          path: release-assets
+          merge-multiple: true
+      - name: Download verified Android assets
+        uses: actions/download-artifact@v7
+        with:
+          name: hiddify-core-android-arm64
+          path: release-assets
+      - name: Publish matching channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          KERNEL_COMMIT: ${{ github.sha }}
+          KERNEL_CHANNEL: ${{ github.ref == 'refs/heads/update' && 'dev' || 'stable' }}
+        run: |
+          set -euo pipefail
+          tag=$(tar -xOzf release-assets/sing-box-linux-amd64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
+          other=$(tar -xOzf release-assets/sing-box-linux-arm64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
+          [ "$tag" = "$other" ] || { echo "Architectures disagree" >&2; exit 1; }
+          (cd release-assets && sha256sum -c hiddify-core-android-arm64.tar.gz.sha256)
+          android_tag=$(tar -xOzf release-assets/hiddify-core-android-arm64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
+          [ "$tag" = "$android_tag" ] || { echo "Android/Linux releases disagree" >&2; exit 1; }
+          if [ "$KERNEL_CHANNEL" = dev ]; then
+            [[ "$tag" == sawamen-dev-* ]] || exit 1
+          else
+            [[ "$tag" == sawamen-* && "$tag" != sawamen-dev-* ]] || exit 1
+          fi
+          cat > release-notes.md <<NOTES
+          Modified Sing-box ($KERNEL_CHANNEL) for 3x-ui
+          Kernel commit: $KERNEL_COMMIT
+          Branch: $GITHUB_REF_NAME
+          Verified Linux AMD64/ARM64 with libcronet.so, target.json, SHA-256.
+          Verified Android ARM64 AAR and root companion are included in both channels.
+          NOTES
+          if gh release view "$tag" --json isDraft >/dev/null 2>&1; then
+            published=$(gh release view "$tag" --json isDraft --jq '.isDraft')
+            [ "$published" = false ] || { echo "Draft already exists: $tag" >&2; exit 1; }
+            available=$(gh release view "$tag" --json assets --jq '.assets[].name')
+            required=(sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256 hiddify-core-android-arm64.tar.gz hiddify-core-android-arm64.tar.gz.sha256)
+            for name in "${required[@]}"; do
+              grep -Fxq "$name" <<< "$available" || { echo "Existing release incomplete: $name" >&2; exit 1; }
+            done
+            echo "Already published: $tag"
+            exit 0
+          fi
+          gh release create "$tag" --target "$KERNEL_COMMIT" --draft \
+            --title "Modified Sing-box $tag" --notes-file release-notes.md
+          gh release upload "$tag" release-assets/*.tar.gz release-assets/*.sha256
+          if [ "$KERNEL_CHANNEL" = dev ]; then
+            gh release edit "$tag" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$tag" --draft=false --prerelease=false --latest
+          fi
+          echo "Published $KERNEL_CHANNEL kernel: $tag"
+ -count=1 -timeout=5m
+
       - name: Package verified kernel
         env:
           KERNEL_ARCH: ${{ matrix.arch }}

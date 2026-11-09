@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           git submodule status --recursive
-          test "$(git -C hiddify-sing-box rev-parse HEAD)" = bcb876d82236498c439e1e2c358931d34eeae519
+          test "$(git -C hiddify-sing-box rev-parse HEAD)" = 3be1e57d29c6b901eb9e9b3fec315d4c7543dc87
           git -C ray2sing status --porcelain
           test "$(git -C ray2sing rev-parse HEAD)" = c6368fc6adea94f7aa9ec57065aae3ad53343ac4
           test "$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Dir}}{{end}}' github.com/sagernet/sing)" = "$PWD/hiddify-sing-box/replace/sing"

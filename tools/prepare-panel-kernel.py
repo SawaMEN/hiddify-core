@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import runpy
 import sys
 
 
@@ -469,6 +470,15 @@ def prepare(panel):
     reverse_test.write_text(reverse_source)
     configure_panel_vless_handshake_rebase(panel)
     configure_native_overlay_canary(panel)
+    # Only native modules from the reviewed Sing-box gitlink may replace overlays.
+    for entry in (
+        "replace github.com/sagernet/sing-vmess => ./hiddify-sing-box/third_party/sing-vmess",
+        "replace github.com/metacubex/utls => ./hiddify-sing-box/replace/utls-native",
+        "replace github.com/xtls/xray-core => ./hiddify-sing-box/third_party/xray-core",
+    ):
+        if module.splitlines().count(entry) != 1:
+            raise ValueError("Missing pinned native module: " + entry)
+    runpy.run_path(str(Path(__file__).with_name("native_overlay_prepare.py")))["rewrite"](panel)
 
     lock_file = panel / "deploy/hiddify/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
@@ -477,7 +487,18 @@ def prepare(panel):
     if go_version is None:
         raise ValueError("Missing core Go toolchain")
     lock["panel_build"]["toolchain"] = "go" + go_version.group(1)
-    lock["panel_build"]["protection_dependency_versions"]["github.com/xtls/xray-core"] = xray_version
+    native_versions = {name: "native:" + sing_sha for name in (
+        "github.com/metacubex/utls", "github.com/starifly/sing-vmess", "github.com/xtls/xray-core"
+    )}
+    lock["panel_build"]["protection_dependency_versions"] = native_versions
+    verifier_file = panel / "tools/verify-hiddify-build.py"
+    verifier = verifier_file.read_text()
+    marker = 'require(build["protection_dependency_versions"] == '
+    matches = [line for line in verifier.splitlines() if marker in line]
+    if len(matches) != 1:
+        raise ValueError("Native protection verifier missing or ambiguous")
+    verified = '    require(build["protection_dependency_versions"] == ' + repr(native_versions) + ', "Pinned native modules differ from verified Sing-box")'
+    verifier_file.write_text(verifier.replace(matches[0], verified))
     refresh_go_module_source_check(lock, module)
     refresh_awg_peer_source_check(lock)
     refresh_xdrive_source_check(lock)

@@ -406,7 +406,7 @@ replace github.com/sagernet/sing-openvpn => github.com/sagernet/sing-openvpn v0.
 
 replace github.com/sagernet/sing-box => ./hiddify-sing-box
 
-replace github.com/sagernet/sing-vmess => ./hiddify-sing-box/replace/sing-vmess
+replace github.com/sagernet/sing-vmess => ./hiddify-sing-box/third_party/sing-vmess
 
 replace github.com/sagernet/wireguard-go => ./hiddify-sing-box/replace/wireguard-go
 
@@ -430,6 +430,7 @@ replace github.com/sagernet/gvisor => ./hiddify-sing-box/replace/gvisor
 
 replace github.com/sagernet/sing-mux => ./hiddify-sing-box/replace/sing-mux
 
-replace github.com/metacubex/utls => github.com/Leadaxe/utls-lx v1.8.8-0.20261011005638-ad69b191e2f8
+replace github.com/metacubex/utls => ./hiddify-sing-box/replace/utls-native
+replace github.com/xtls/xray-core => ./hiddify-sing-box/third_party/xray-core
 
 replace github.com/sagernet/sing => ./hiddify-sing-box/replace/sing

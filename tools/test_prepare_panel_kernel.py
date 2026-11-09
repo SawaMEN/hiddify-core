@@ -9,6 +9,32 @@ prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
 
 
+class HTTP2LegacyBuildTest(unittest.TestCase):
+    def test_requires_legacy_http2_transport_in_runtime_and_release_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            panel = Path(tmp)
+            runtime = panel / "internal/hiddify/process.go"
+            runtime.parent.mkdir(parents=True)
+            runtime.write_text('var requiredBuildTags = []string{"with_kcp"}\n')
+            lock = {"panel_build": {"tags": ["with_kcp", "with_purego"]}}
+            prepare.configure_native_http2_extended_connect(panel, lock)
+            prepare.configure_native_http2_extended_connect(panel, lock)
+            self.assertEqual(1, lock["panel_build"]["tags"].count("http2legacy"))
+            self.assertEqual(1, runtime.read_text().count('"http2legacy"'))
+            self.assertIn('"with_kcp"', runtime.read_text())
+
+    def test_rejects_missing_runtime_tag_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            panel = Path(tmp)
+            runtime = panel / "internal/hiddify/process.go"
+            runtime.parent.mkdir(parents=True)
+            runtime.write_text("invalid runtime")
+            with self.assertRaises(ValueError):
+                prepare.configure_native_http2_extended_connect(
+                    panel, {"panel_build": {"tags": ["with_kcp"]}}
+                )
+
+
 class ReleaseProfileTest(unittest.TestCase):
     def test_accepts_current_mask_profile(self):
         self.assertEqual("-mask1", prepare.patch_profile_suffix(

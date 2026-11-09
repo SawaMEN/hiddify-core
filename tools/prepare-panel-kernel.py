@@ -429,6 +429,31 @@ def configure_native_overlay_canary(panel):
     script = script.replace(old_rebase, ': # native FinalMask; no legacy rebase')
     build.write_text(script)
 
+def configure_native_http2_extended_connect(panel, lock):
+    """Keep MASQUE HTTP/2 extended CONNECT functional with Go 1.27.
+
+    The stdlib-backed HTTP/2 wrapper rejects the :protocol pseudo-header
+    on this pinned toolchain. x/net/http2's reviewed http2legacy transport
+    retains the extended CONNECT implementation used by MASQUE and XHTTP.
+    This tag must describe the actual binary and be verified on startup.
+    """
+    tags = lock["panel_build"]["tags"]
+    if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+        raise ValueError("Invalid reviewed native feature tags")
+    if "http2legacy" not in tags:
+        tags.append("http2legacy")
+    runtime_file = panel / "internal/hiddify/process.go"
+    runtime = runtime_file.read_text()
+    marker = "var requiredBuildTags = []string{"
+    if runtime.count(marker) != 1:
+        raise ValueError("Missing panel required build tags")
+    start = runtime.index(marker)
+    end = runtime.index("}", start)
+    tags_text = runtime[start:end]
+    if '"http2legacy"' not in tags_text:
+        runtime_file.write_text(runtime[:end] + ', "http2legacy"' + runtime[end:])
+
+
 def prepare(panel):
     core_sha = os.environ["KERNEL_COMMIT"]
     channel = os.environ["KERNEL_CHANNEL"]
@@ -513,6 +538,9 @@ def prepare(panel):
     sniff_source = sniff_source.replace(old, "NewRuleAction(nil, options)")
     sniff_source = sniff_source.replace('    "context"\n', "")
     sniff_test.write_text(sniff_source)
+    # Use the x/net HTTP/2 transport while Go 1.27's stdlib wrapper
+    # cannot handle MASQUE extended CONNECT's :protocol pseudo-header.
+    configure_native_http2_extended_connect(panel, lock)
     # mKCP is built into the newer fork behind its native feature tag.
     # Keep the panel's legacy interoperability tests and runtime in sync.
     tags = lock["panel_build"]["tags"]

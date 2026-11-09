@@ -232,6 +232,8 @@ def patch_profile_suffix(version):
 
 def configure_panel_utls_checkout(panel, module):
     """Keep the panel's uTLS overlay on the same fork as the native core."""
+    if "replace github.com/metacubex/utls => ./hiddify-sing-box/replace/utls-native" in module.splitlines():
+        return  # Reviewed module pinned inside the Sing-box gitlink; never patch it twice.
     if not re.search(
         r"(?m)^replace github\.com/metacubex/utls => github\.com/Leadaxe/utls-lx v[^\s]+$",
         module,

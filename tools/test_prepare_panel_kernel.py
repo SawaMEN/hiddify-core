@@ -267,7 +267,7 @@ class NativeOverlayRewriteTest(unittest.TestCase):
     def test_rewrite_uses_native_modules_and_keeps_security_checks(self):
         count, result = self.rewrite_fixture(self.fixture())
         self.assertEqual(21, count)
-        self.assertEqual(21, result.count("Missing native source:"))
+        self.assertEqual(26, result.count("Missing native source:"))  # includes five source checks replacing legacy apply steps
         for obsolete in ("xui-dependencies", "rebase-panel-protection.py",
                          "rebase-panel-transport.py", "rebase-panel-vless-reverse.py",
                          "sing-vmess-reverse.patch", "xray-runtime-compat.patch"):

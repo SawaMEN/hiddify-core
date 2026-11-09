@@ -331,9 +331,15 @@ def configure_panel_xray_dependency(panel, module):
     build.write_text(script.replace(previous, "github.com/xtls/xray-core@" + version))
     verifier_file = panel / "tools/verify-hiddify-build.py"
     verifier = verifier_file.read_text()
-    if verifier.count(old_version) != 1:
-        raise ValueError("Unexpected Xray pin in panel runtime audit")
-    verifier_file.write_text(verifier.replace(old_version, version))
+    if verifier.count(old_version) == 1:
+        # Legacy audited panels retained a literal Xray version.
+        verifier_file.write_text(verifier.replace(old_version, version))
+    elif verifier.count(old_version) == 0:
+        # Native panels take the reviewed Xray module from the fork itself.
+        if 'build["protection_dependency_versions"]' not in verifier or "native_pins" not in verifier:
+            raise ValueError("Native Xray provenance audit is missing")
+    else:
+        raise ValueError("Ambiguous Xray pin in panel runtime audit")
 
     # Xray 26.10 implemented the old mux fixes natively: PacketReader now
     # retains the destination by value, and SessionManager.Allocate installs

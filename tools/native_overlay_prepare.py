@@ -32,4 +32,13 @@ def rewrite(panel):
         "protocol/vless/xui_vision_testseed_native_test.go",
     ]
     script = script[:a] + "\n".join(native_check(x) for x in required) + "\n" + script[b:]
+    for command, evidence in [
+        (stop, "common/tls/xui_reality_mldsa_handshake_test.go"),
+        ('python3 "$task_root/tools/rebase-panel-transport.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/transport-balancer.patch"', "protocol/group/xui_balancer_test.go"),
+        ('python3 "$task_root/tools/rebase-panel-vless-reverse.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/vless-reverse.patch"', "protocol/vless/xui_reverse_native_test.go"),
+        ('git -C "$task_source/core" apply --directory=xui-dependencies/xray-core "$task_root/deploy/hiddify/xray-runtime-compat.patch"', "third_party/xray-core/go.mod"),
+    ]:
+        if "xui-dependencies/" in command and command not in script:
+            continue
+        once(command, native_check(evidence))
     return path, script, once

@@ -58,4 +58,12 @@ def rewrite(panel):
         "vision_preconnect_test.go.in": "protocol/vless/xui_preconnect_test.go",
         "vision_padding_test.go.in": "protocol/vless/xui_vision_testseed_native_test.go",
     }
+    once('git -C "$task_source/core" apply --directory=xui-dependencies/sing-vmess "$task_root/deploy/hiddify/sing-vmess-reverse.patch"', native_check("third_party/sing-vmess/vless/xui_reverse_native_test.go"))
+    for fixture, evidence in tests.items():
+        matches = [line for line in script.splitlines() if
+                   ('"$task_root/deploy/hiddify/' + fixture + '"') in line
+                   and line.lstrip().startswith("cp ")]
+        if len(matches) != 1:
+            raise ValueError("Unexpected native test injection: " + fixture)
+        once(matches[0], native_check(evidence))
     return path, script, once

@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import runpy
 import sys
 
 
@@ -198,31 +199,31 @@ def refresh_xdrive_source_check(lock):
     check["contains"] = new_evidence
 
 
-def refresh_panel_audit_toolchain_check(panel, lock):
-    """Pin the panel's disposable runtime audit to the checked-out core Go version."""
+def refresh_panel_verifier_toolchain_check(panel, lock):
+    """Update the actual panel runtime verifier for the checked-out core Go version."""
     toolchain = lock["panel_build"]["toolchain"]
     if not re.fullmatch(r"go[0-9]+\.[0-9]+(?:\.[0-9]+)?", toolchain):
         raise ValueError("Invalid runtime audit toolchain")
-    audit_file = panel / "tools/audit-hiddify-migration.py"
-    audit = audit_file.read_text()
+    verifier_file = panel / "tools/verify-hiddify-build.py"
+    verifier = verifier_file.read_text()
     check = r'require\(build\["toolchain"\] == "go[0-9]+\.[0-9]+(?:\.[0-9]+)?", "Runtime must use the pinned security-patched toolchain"\)'
     updated, count = re.subn(
         check,
         'require(build["toolchain"] == "' + toolchain + '", "Runtime must use the pinned security-patched toolchain")',
-        audit,
+        verifier,
     )
     if count != 1:
         raise ValueError("Cannot update panel runtime audit toolchain check")
-    audit_file.write_text(updated)
+    verifier_file.write_text(updated)
 
 
 def patch_profile_suffix(version):
     """Preserve known numbered panel/mask and optional cipher profiles."""
     if not isinstance(version, str):
         raise ValueError("Invalid patch profile")
-    match = re.search(r"(-(?:panel|mask)[0-9]+(?:-ciphers[0-9]+)?)$", version)
+    match = re.search(r"(-(?:panel|mask)[0-9]+(?:-ciphers[0-9]+)?(?:-net[0-9]+)?(?:-sec[0-9]+)?(?:-stream[0-9]+)?)$", version)
     if not match:
-        raise ValueError("Cannot determine patch profile (expected -panelN or -maskN)")
+        raise ValueError("Cannot determine patch profile (expected -panelN or -maskN with known suffixes)")
     return match.group(1)
 
 
@@ -232,6 +233,8 @@ def patch_profile_suffix(version):
 
 def configure_panel_utls_checkout(panel, module):
     """Keep the panel's uTLS overlay on the same fork as the native core."""
+    if "replace github.com/metacubex/utls => ./hiddify-sing-box/replace/utls-native" in module.splitlines():
+        return  # Reviewed module pinned inside the Sing-box gitlink; never patch it twice.
     if not re.search(
         r"(?m)^replace github\.com/metacubex/utls => github\.com/Leadaxe/utls-lx v[^\s]+$",
         module,
@@ -310,15 +313,15 @@ def configure_panel_kcp_finalmask_interop(panel):
         raise ValueError("Cannot find panel transport test invocation")
     script = script.replace(old_run, new_run)
     original_check = (
-        'CGO_ENABLED="$task_cgo" GOTOOLCHAIN="${target[5]}" go test '
-        '-ldflags "$task_link_flags" -tags "${target[3]}" '
-        "github.com/sagernet/sing-box -run '^TestXUIPanelInboundFinalMask' -count=1"
+        'CGO_ENABLED=0 GOTOOLCHAIN="${target[5]}" go test '
+        '-ldflags "$task_test_link_flags" -tags "$task_test_tags" '
+        "github.com/sagernet/sing-box -run '^TestXUIPanelInboundFinalMask' -count=1 -timeout=60s"
     )
     if script.count(original_check) != 1:
         raise ValueError("Cannot find root FinalMask regression")
     native_check = (
-        'CGO_ENABLED="$task_cgo" GOTOOLCHAIN="${target[5]}" go test '
-        '-ldflags "$task_link_flags" -tags "${target[3]}" '
+        'CGO_ENABLED=0 GOTOOLCHAIN="${target[5]}" go test '
+        '-ldflags "$task_test_link_flags" -tags "$task_test_tags" '
         "github.com/sagernet/sing-box -run '^TestH_(XrayKCP|KCPWithTLS)$' -count=1 -timeout=180s"
     )
     script = script.replace(original_check, native_check + "\n    " + original_check)
@@ -351,11 +354,11 @@ def configure_panel_xray_dependency(panel, module):
     if script.count(previous) != 2:
         raise ValueError("Unexpected panel Xray download and copy paths")
     build.write_text(script.replace(previous, "github.com/xtls/xray-core@" + version))
-    audit_file = panel / "tools/audit-hiddify-migration.py"
-    audit = audit_file.read_text()
-    if audit.count(old_version) != 1:
+    verifier_file = panel / "tools/verify-hiddify-build.py"
+    verifier = verifier_file.read_text()
+    if verifier.count(old_version) != 1:
         raise ValueError("Unexpected Xray pin in panel runtime audit")
-    audit_file.write_text(audit.replace(old_version, version))
+    verifier_file.write_text(verifier.replace(old_version, version))
 
     # Xray 26.10 implemented the old mux fixes natively: PacketReader now
     # retains the destination by value, and SessionManager.Allocate installs
@@ -382,6 +385,49 @@ def configure_panel_xray_dependency(panel, module):
         patch.write_text("".join(filtered))
     return version
 
+
+
+def configure_native_overlay_canary(panel):
+    """Probe the native sing-box candidate without reapplying completed overlays.
+
+    Only the isolated draft core PR uses this; the published 3x-ui builder is
+    unchanged. Every disabled overlay requires a native source regression check.
+    Remaining incomplete overlays and all security verification still execute.
+    """
+    build = panel / "tools/build-hiddify-core.sh"
+    script = build.read_text()
+    native = (
+        ('git -C "$task_source/core" apply "$task_root/deploy/hiddify/clash-user.patch"',
+         "experimental/clashapi/trafficontrol/xui_panel_test.go"),
+        ('git -C "$task_source/core" apply "$task_root/deploy/hiddify/sniff-override.patch"',
+         "route/rule/xui_panel_sniff_test.go"),
+        ('git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/http1-options.patch"',
+         "option/xui_panel_http1_test.go"),
+        ('git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/hysteria-safety.patch"',
+         "protocol/hysteria2/inbound.go"),
+        ('git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/inbound-finalmask.patch"',
+         "xui_inbound_finalmask_test.go"),
+        ('python3 "$task_root/tools/rebase-panel-ciphers.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/explicit-cipher-suites.patch"',
+         "common/tls/xui_explicit_ciphers_test.go"),
+        ('git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/stream-handshake.patch"',
+         "transport/trojan/xui_stream_test.go"),
+        ('python3 "$task_root/tools/rebase-panel-vless-handshake.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/vless-handshake.patch"',
+         "protocol/vless/h_handshake_close_once_test.go"),
+    )
+    for application, regression in native:
+        if script.count(application) != 1:
+            raise ValueError("Unexpected native overlay application: " + regression)
+        check = (
+            'test -f "$task_source/core/hiddify-sing-box/' + regression +
+            '" || { echo "Missing native regression: ' + regression + '" >&2; exit 1; }'
+        )
+        script = script.replace(application, check)
+    # The old post-apply API adapter would modify already-native FinalMask.
+    old_rebase = 'python3 "$task_root/tools/rebase-panel-inbound-finalmask.py" "$task_source/core/hiddify-sing-box"'
+    if script.count(old_rebase) != 1:
+        raise ValueError("FinalMask legacy rebase moved")
+    script = script.replace(old_rebase, ': # native FinalMask; no legacy rebase')
+    build.write_text(script)
 
 def prepare(panel):
     core_sha = os.environ["KERNEL_COMMIT"]
@@ -423,19 +469,40 @@ def prepare(panel):
     reverse_source = reverse_source.replace(old_close, "\t// The V2RayServer is not independently started; no Close lifecycle on interface.")
     reverse_test.write_text(reverse_source)
     configure_panel_vless_handshake_rebase(panel)
+    configure_native_overlay_canary(panel)
+    # Only native modules from the reviewed Sing-box gitlink may replace overlays.
+    for entry in (
+        "replace github.com/sagernet/sing-vmess => ./hiddify-sing-box/third_party/sing-vmess",
+        "replace github.com/metacubex/utls => ./hiddify-sing-box/replace/utls-native",
+        "replace github.com/xtls/xray-core => ./hiddify-sing-box/third_party/xray-core",
+    ):
+        if module.splitlines().count(entry) != 1:
+            raise ValueError("Missing pinned native module: " + entry)
+    runpy.run_path(str(Path(__file__).with_name("native_overlay_prepare.py")))["rewrite"](panel)
 
-    lock_file = panel / "docs/hiddify-core-target.json"
+    lock_file = panel / "deploy/hiddify/hiddify-core-target.json"
     lock = json.loads(lock_file.read_text())
     configure_panel_owned_parser(panel, lock)
     go_version = re.search(r"(?m)^go (\d+\.\d+(?:\.\d+)?)$", module)
     if go_version is None:
         raise ValueError("Missing core Go toolchain")
     lock["panel_build"]["toolchain"] = "go" + go_version.group(1)
-    lock["panel_build"]["protection_dependency_versions"]["github.com/xtls/xray-core"] = xray_version
+    native_versions = {name: "native:" + sing_sha for name in (
+        "github.com/metacubex/utls", "github.com/starifly/sing-vmess", "github.com/xtls/xray-core"
+    )}
+    lock["panel_build"]["protection_dependency_versions"] = native_versions
+    verifier_file = panel / "tools/verify-hiddify-build.py"
+    verifier = verifier_file.read_text()
+    marker = 'require(build["protection_dependency_versions"] == '
+    matches = [line for line in verifier.splitlines() if marker in line]
+    if len(matches) != 1:
+        raise ValueError("Native protection verifier missing or ambiguous")
+    verified = '    require(build["protection_dependency_versions"] == ' + repr(native_versions) + ', "Pinned native modules differ from verified Sing-box")'
+    verifier_file.write_text(verifier.replace(matches[0], verified))
     refresh_go_module_source_check(lock, module)
     refresh_awg_peer_source_check(lock)
     refresh_xdrive_source_check(lock)
-    refresh_panel_audit_toolchain_check(panel, lock)
+    refresh_panel_verifier_toolchain_check(panel, lock)
     # The fork migrated NewRuleAction(ctx, logger, action) to
     # NewRuleAction(logger, action); preserve the panel sniff regression.
     sniff_test = panel / "deploy/hiddify/sniff_override_test.go.in"

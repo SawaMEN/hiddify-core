@@ -34,7 +34,21 @@ jobs:
             go.sum
             hiddify-sing-box/go.sum
       - name: Download exact selected module graph
-        run: go mod download all
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Retry transient proxy/CDN errors, then fall back to the module's
+          # original VCS. Go continues verifying modules against go.sum.
+          for attempt in 1 2 3; do
+            if GOPROXY='https://proxy.golang.org|direct' go mod download all; then
+              exit 0
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              echo 'Pinned Go dependencies remain unavailable' >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
       - name: Vet native core APIs
         run: |
           tags=$(make -s print-NATIVE_TEST_TAGS)

@@ -22,6 +22,10 @@ class ReleaseProfileTest(unittest.TestCase):
         self.assertEqual("-panel9-ciphers2", prepare.patch_profile_suffix(
             "sawamen-3d4ee155c924-244e333149ec-panel9-ciphers2"))
 
+    def test_preserves_current_security_stream_mask_profile(self):
+        current = "sawamen-b310097c8e7a-338f0c9457a4-mask1-ciphers1-net62-sec1-stream1"
+        self.assertEqual("-mask1-ciphers1-net62-sec1-stream1", prepare.patch_profile_suffix(current))
+
     def test_retains_legacy_panel_profile(self):
         self.assertEqual("-panel9", prepare.patch_profile_suffix(
             "sawamen-3d4ee155c924-244e333149ec-panel9"))
@@ -72,27 +76,27 @@ class ModuleSourceCheckTest(unittest.TestCase):
             )
 
 
-class PanelAuditToolchainTest(unittest.TestCase):
-    def test_rebases_exact_audit_pin_to_core_toolchain(self):
+class PanelVerifierToolchainTest(unittest.TestCase):
+    def test_rebases_exact_verifier_pin_to_core_toolchain(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
-            audit = folder / "tools/audit-hiddify-migration.py"
+            audit = folder / "tools/verify-hiddify-build.py"
             audit.parent.mkdir()
             audit.write_text('require(build["toolchain"] == "go1.26.9", "Runtime must use the pinned security-patched toolchain")\\n')
-            prepare.refresh_panel_audit_toolchain_check(folder, {"panel_build": {"toolchain": "go1.26.10"}})
+            prepare.refresh_panel_verifier_toolchain_check(folder, {"panel_build": {"toolchain": "go1.26.10"}})
             self.assertIn('build["toolchain"] == "go1.26.10"', audit.read_text())
             self.assertNotIn('build["toolchain"] == "go1.26.9"', audit.read_text())
 
-    def test_refuses_unknown_audit_check_or_toolchain(self):
+    def test_refuses_unknown_verifier_check_or_toolchain(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
-            audit = folder / "tools/audit-hiddify-migration.py"
+            audit = folder / "tools/verify-hiddify-build.py"
             audit.parent.mkdir()
             audit.write_text("unknown runtime audit")
             with self.assertRaises(ValueError):
-                prepare.refresh_panel_audit_toolchain_check(folder, {"panel_build": {"toolchain": "go1.26.10"}})
+                prepare.refresh_panel_verifier_toolchain_check(folder, {"panel_build": {"toolchain": "go1.26.10"}})
             with self.assertRaises(ValueError):
-                prepare.refresh_panel_audit_toolchain_check(folder, {"panel_build": {"toolchain": "unknown"}})
+                prepare.refresh_panel_verifier_toolchain_check(folder, {"panel_build": {"toolchain": "unknown"}})
 
 
 class AWGSourceEvidenceTest(unittest.TestCase):
@@ -177,6 +181,113 @@ class DependencyOverlayTest(unittest.TestCase):
             panel = self.fixture(Path(tmp), "--- a/go.mod\n+++ b/go.mod\n-\texample.com/existing v1.0.0\n")
             with self.assertRaises(ValueError):
                 prepare.prepare_runtime_dependencies(panel, "require (\n)\n")
+
+
+
+class NativeOverlayCanaryTest(unittest.TestCase):
+    def test_native_gates_preserve_incomplete_overlays(self):
+        applications = [
+            'git -C "$task_source/core" apply "$task_root/deploy/hiddify/clash-user.patch"',
+            'git -C "$task_source/core" apply "$task_root/deploy/hiddify/sniff-override.patch"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/http1-options.patch"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/hysteria-safety.patch"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/inbound-finalmask.patch"',
+            'python3 "$task_root/tools/rebase-panel-ciphers.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/explicit-cipher-suites.patch"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/stream-handshake.patch"',
+            'python3 "$task_root/tools/rebase-panel-vless-handshake.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/vless-handshake.patch"',
+            'python3 "$task_root/tools/rebase-panel-inbound-finalmask.py" "$task_source/core/hiddify-sing-box"',
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/hiddify/transport-balancer.patch"',
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            panel = Path(tmp)
+            script = panel / "tools/build-hiddify-core.sh"
+            script.parent.mkdir(parents=True)
+            source = "\n".join(applications) + "\n"
+            script.write_text(source)
+            prepare.configure_native_overlay_canary(panel)
+            generated = script.read_text()
+            self.assertEqual(8, generated.count("Missing native regression:"))
+            self.assertNotIn("rebase-panel-inbound-finalmask.py", generated)
+            self.assertIn("transport-balancer.patch", generated)
+            self.assertIn("test -f", generated)
+            # A changed overlay application cannot silently disappear.
+            script.write_text(source.replace("clash-user.patch", "renamed-clash.patch"))
+            with self.assertRaises(ValueError):
+                prepare.configure_native_overlay_canary(panel)
+            self.assertEqual(source.replace("clash-user.patch", "renamed-clash.patch"), script.read_text())
+
+
+
+class NativeOverlayRewriteTest(unittest.TestCase):
+    """Ensure all staged native module overlays disappear without dropping security gates."""
+
+    def fixture(self):
+        commands = [
+            'git -C "$task_source/core/hiddify-sing-box" apply "$task_root/deploy/speed/masque.patch"',
+            '# Modify verified dependency copies, never the shared Go module cache.',
+            'git -C "$task_source/core" apply --directory=xui-dependencies/utls "$task_root/deploy/hiddify/utls-protection.patch"',
+            'git -C "$task_source/core" apply --directory=xui-dependencies/sing-vmess "$task_root/deploy/hiddify/sing-vmess-protection.patch"',
+            'python3 "$task_root/tools/rebase-panel-protection.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/protection-options.patch"',
+            'python3 "$task_root/tools/rebase-panel-transport.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/transport-balancer.patch"',
+            'python3 "$task_root/tools/rebase-panel-vless-reverse.py" "$task_source/core/hiddify-sing-box" "$task_root/deploy/hiddify/vless-reverse.patch"',
+            'git -C "$task_source/core" apply --directory=xui-dependencies/sing-vmess "$task_root/deploy/hiddify/sing-vmess-reverse.patch"',
+            'git -C "$task_source/core" apply --directory=xui-dependencies/xray-core "$task_root/deploy/hiddify/xray-runtime-compat.patch"',
+        ]
+        fixtures = (
+            'inbound_finalmask', 'http1_options', 'clash_user', 'sniff_override',
+            'stream_upgrade', 'stream_trojan', 'explicit_cipher_suites',
+            'vless_handshake', 'reverse_vision', 'reverse_runtime',
+            'xhttp_extension', 'balancer_strategy', 'reality_protection',
+            'vision_preconnect', 'vision_padding',
+        )
+        for name in fixtures:
+            commands.append('cp -- "$task_root/deploy/hiddify/' + name +
+                            '_test.go.in" "$task_source/core/hiddify-sing-box/placeholder.go"')
+        commands += [
+            '  GOTOOLCHAIN="${target[5]}" go mod edit -replace github.com/metacubex/utls=./xui-dependencies/utls -replace github.com/sagernet/sing-vmess=./xui-dependencies/sing-vmess',
+            '  GOTOOLCHAIN="${target[5]}" go mod edit -replace github.com/xtls/xray-core=./xui-dependencies/xray-core',
+            '  GOTOOLCHAIN="${target[5]}" go mod download "${security_dependencies[@]}"',
+            'python3 "$task_root/tools/verify-hiddify-build.py" --upstream "$task_source/core"',
+            'python3 "$task_root/tools/rebase-panel-masque.py" "$task_source/core/hiddify-sing-box"',
+            'go mod tidy',
+            'go build -buildvcs=true',
+        ]
+        return "\n".join(commands) + "\n"
+
+    def rewrite_fixture(self, fixture):
+        import runpy
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            build = folder / "tools/build-hiddify-core.sh"
+            build.parent.mkdir()
+            build.write_text(fixture)
+            result = runpy.run_path(str(Path(__file__).with_name("native_overlay_prepare.py")))["rewrite"](folder)
+            return result, build.read_text()
+
+    def test_rewrite_uses_native_modules_and_keeps_security_checks(self):
+        count, result = self.rewrite_fixture(self.fixture())
+        self.assertEqual(21, count)
+        self.assertEqual(26, result.count("Missing native source:"))  # includes five source checks replacing legacy apply steps
+        for obsolete in ("xui-dependencies", "rebase-panel-protection.py",
+                         "rebase-panel-transport.py", "rebase-panel-vless-reverse.py",
+                         "sing-vmess-reverse.patch", "xray-runtime-compat.patch"):
+            self.assertNotIn(obsolete, result)
+        for preserved in ('go mod download "${security_dependencies[@]}"',
+                          'python3 "$task_root/tools/verify-hiddify-build.py"',
+                          'python3 "$task_root/tools/rebase-panel-masque.py"',
+                          "deploy/speed/masque.patch", "go mod tidy",
+                          "go build -buildvcs=true"):
+            self.assertIn(preserved, result)
+
+    def test_rewrite_rejects_changed_native_mapping_or_dropped_gate(self):
+        source = self.fixture()
+        for modified in (
+            source.replace("vless-reverse.patch", "reverse-v2.patch"),
+            source.replace("vision_padding_test.go.in", "vision_padding_v2_test.go.in"),
+            source.replace('go mod download "${security_dependencies[@]}"', "true"),
+        ):
+            with self.subTest(modified=modified != source), self.assertRaises(ValueError):
+                self.rewrite_fixture(modified)
 
 
 if __name__ == "__main__":

@@ -66,4 +66,8 @@ def rewrite(panel):
         if len(matches) != 1:
             raise ValueError("Unexpected native test injection: " + fixture)
         once(matches[0], native_check(evidence))
+    once('  GOTOOLCHAIN="${target[5]}" go mod edit -replace github.com/metacubex/utls=./xui-dependencies/utls -replace github.com/sagernet/sing-vmess=./xui-dependencies/sing-vmess\n', '')
+    once('  GOTOOLCHAIN="${target[5]}" go mod edit -replace github.com/xtls/xray-core=./xui-dependencies/xray-core\n', '')
+    if "xui-dependencies" in script:
+        raise ValueError("Legacy module cache overlays remain")
     return path, script, once

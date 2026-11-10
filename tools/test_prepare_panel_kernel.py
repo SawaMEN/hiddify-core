@@ -194,6 +194,30 @@ class NativeVerifierCompatibilityTest(unittest.TestCase):
             )
             self.assertIn('build["toolchain"] == "go1.27.3"', verifier.read_text())
 
+class NativeProtectionVerifierTest(unittest.TestCase):
+    def test_dynamic_verifier_remains_valid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            panel = Path(temporary)
+            path = panel / "tools/verify-hiddify-build.py"
+            path.parent.mkdir(parents=True)
+            expected = ('native_pins = {module: "native:" + native_sha for module in (\n'
+                        '    "github.com/metacubex/utls",\n)}\n'
+                        'require(build["protection_dependency_versions"] == native_pins,\n'
+                        '        "Native protection dependencies must match pinned Sing-box gitlink")\n')
+            path.write_text(expected)
+            prepare.refresh_native_protection_verifier(panel, {"test": "native:sha"})
+            self.assertEqual(expected, path.read_text())
+
+    def test_legacy_static_verifier_is_replaced(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            panel = Path(temporary)
+            path = panel / "tools/verify-hiddify-build.py"
+            path.parent.mkdir(parents=True)
+            path.write_text('    require(build["protection_dependency_versions"] == {}, "Old guard")\n')
+            prepare.refresh_native_protection_verifier(panel, {"native": "native:sha"})
+            self.assertIn("'native': 'native:sha'", path.read_text())
+
+
 class NativeDependenciesTest(unittest.TestCase):
     def fixture(self, folder):
         panel = folder / "panel"

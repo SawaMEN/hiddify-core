@@ -109,6 +109,25 @@ def configure_panel_vless_handshake_rebase(panel):
     build.write_text(script.replace(before, after))
 
 
+def refresh_native_protection_verifier(panel, native_versions):
+    """Keep the panel's manifest-derived source check; adapt only legacy snapshots."""
+    verifier_file = panel / "tools/verify-hiddify-build.py"
+    verifier = verifier_file.read_text()
+    dynamic = 'require(build["protection_dependency_versions"] == native_pins,'
+    declaration = 'native_pins = {module: "native:" + native_sha for module in ('
+    if dynamic in verifier:
+        if verifier.count(dynamic) != 1 or declaration not in verifier:
+            raise ValueError("Native protection source audit changed unexpectedly")
+        return  # The manifest-derived assertion already follows the current gitlink.
+    marker = 'require(build["protection_dependency_versions"] == '
+    matches = [line for line in verifier.splitlines() if marker in line]
+    if len(matches) != 1:
+        raise ValueError("Native protection verifier missing or ambiguous")
+    verified = ('    require(build["protection_dependency_versions"] == ' +
+                repr(native_versions) + ', "Pinned native modules differ from verified Sing-box")')
+    verifier_file.write_text(verifier.replace(matches[0], verified))
+
+
 def prepare_runtime_dependencies(panel, module):
     """Require reviewed dependencies in the native module, without a no-op patch."""
     required = (
@@ -497,14 +516,7 @@ def prepare(panel):
         "github.com/metacubex/utls", "github.com/starifly/sing-vmess", "github.com/xtls/xray-core"
     )}
     lock["panel_build"]["protection_dependency_versions"] = native_versions
-    verifier_file = panel / "tools/verify-hiddify-build.py"
-    verifier = verifier_file.read_text()
-    marker = 'require(build["protection_dependency_versions"] == '
-    matches = [line for line in verifier.splitlines() if marker in line]
-    if len(matches) != 1:
-        raise ValueError("Native protection verifier missing or ambiguous")
-    verified = '    require(build["protection_dependency_versions"] == ' + repr(native_versions) + ', "Pinned native modules differ from verified Sing-box")'
-    verifier_file.write_text(verifier.replace(matches[0], verified))
+    refresh_native_protection_verifier(panel, native_versions)
     refresh_go_module_source_check(lock, module)
     refresh_awg_peer_source_check(lock)
     refresh_xdrive_source_check(lock)

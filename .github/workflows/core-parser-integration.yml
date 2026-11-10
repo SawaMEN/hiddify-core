@@ -45,9 +45,9 @@ jobs:
         run: |
           set -euo pipefail
           git submodule status --recursive
-          test "$(git -C hiddify-sing-box rev-parse HEAD)" = b424bc0f32cef03baba30373fdee42861f455d8c
+          test "$(git -C hiddify-sing-box rev-parse HEAD)" = "$(git ls-tree HEAD -- hiddify-sing-box | awk '$1 == "160000" && $2 == "commit" { print $3 }')"
           git -C ray2sing status --porcelain
-          test "$(git -C ray2sing rev-parse HEAD)" = c6368fc6adea94f7aa9ec57065aae3ad53343ac4
+          test "$(git -C ray2sing rev-parse HEAD)" = "$(git ls-tree HEAD -- ray2sing | awk '$1 == "160000" && $2 == "commit" { print $3 }')"
           test "$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Dir}}{{end}}' github.com/sagernet/sing)" = "$PWD/hiddify-sing-box/replace/sing"
       - name: Download and compile all native packages
         shell: bash

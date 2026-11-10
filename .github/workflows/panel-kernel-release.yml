@@ -136,10 +136,7 @@ jobs:
   build-android:
     needs: resolve_singbox
     name: Android ARM64 AAR and root companion
-    if: >-
-      (github.event_name == 'pull_request') ||
-      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/update'))
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 65
     steps:
@@ -233,13 +230,12 @@ jobs:
 
   publish:
     name: Publish dev or stable release
-    needs: [build, build-android]
+    needs: [build]
     if: >-
       always() &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (github.ref == 'refs/heads/update' || github.ref == 'refs/heads/main') &&
-      needs.build.result == 'success' &&
-      needs.build-android.result == 'success'
+      needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -249,11 +245,6 @@ jobs:
           pattern: sing-box-linux-*
           path: release-assets
           merge-multiple: true
-      - name: Download verified Android assets
-        uses: actions/download-artifact@v7
-        with:
-          name: hiddify-core-android-arm64
-          path: release-assets
       - name: Publish matching channel
         env:
           GH_TOKEN: ${{ github.token }}
@@ -265,9 +256,6 @@ jobs:
           tag=$(tar -xOzf release-assets/sing-box-linux-amd64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
           other=$(tar -xOzf release-assets/sing-box-linux-arm64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
           [ "$tag" = "$other" ] || { echo "Architectures disagree" >&2; exit 1; }
-          (cd release-assets && sha256sum -c hiddify-core-android-arm64.tar.gz.sha256)
-          android_tag=$(tar -xOzf release-assets/hiddify-core-android-arm64.tar.gz target.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["version"])')
-          [ "$tag" = "$android_tag" ] || { echo "Android/Linux releases disagree" >&2; exit 1; }
           if [ "$KERNEL_CHANNEL" = dev ]; then
             [[ "$tag" == sawamen-dev-* ]] || exit 1
           else
@@ -278,13 +266,13 @@ jobs:
           Kernel commit: $KERNEL_COMMIT
           Branch: $GITHUB_REF_NAME
           Verified Linux AMD64/ARM64 with libcronet.so, target.json, SHA-256.
-          Verified Android ARM64 AAR and root companion are included in both channels.
+          Android AAR and root companion are built independently on manual dispatch; not required for Linux releases.
           NOTES
           if gh release view "$tag" --json isDraft >/dev/null 2>&1; then
             published=$(gh release view "$tag" --json isDraft --jq '.isDraft')
             [ "$published" = false ] || { echo "Draft already exists: $tag" >&2; exit 1; }
             available=$(gh release view "$tag" --json assets --jq '.assets[].name')
-            required=(sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256 hiddify-core-android-arm64.tar.gz hiddify-core-android-arm64.tar.gz.sha256)
+            required=(sing-box-linux-amd64.tar.gz sing-box-linux-amd64.tar.gz.sha256 sing-box-linux-arm64.tar.gz sing-box-linux-arm64.tar.gz.sha256)
             for name in "${required[@]}"; do
               grep -Fxq "$name" <<< "$available" || { echo "Existing release incomplete: $name" >&2; exit 1; }
             done

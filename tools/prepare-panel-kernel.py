@@ -189,10 +189,10 @@ def refresh_panel_verifier_toolchain_check(panel, lock):
         raise ValueError("Invalid runtime audit toolchain")
     verifier_file = panel / "tools/verify-hiddify-build.py"
     verifier = verifier_file.read_text()
-    check = r'require\(build\["toolchain"\] == "go[0-9]+\.[0-9]+(?:\.[0-9]+)?", "Runtime must use the pinned security-patched toolchain"\)'
+    check = r'require\(build\["toolchain"\] == "go[0-9]+\.[0-9]+(?:\.[0-9]+)?", "Runtime must use the (?:pinned security-patched toolchain|reviewed security-patched core toolchain)"\)'
     updated, count = re.subn(
         check,
-        'require(build["toolchain"] == "' + toolchain + '", "Runtime must use the pinned security-patched toolchain")',
+        'require(build["toolchain"] == "' + toolchain + '", "Runtime must use the reviewed security-patched core toolchain")',
         verifier,
     )
     if count != 1:

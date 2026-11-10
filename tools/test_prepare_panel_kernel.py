@@ -169,6 +169,31 @@ class XDriveSourceEvidenceTest(unittest.TestCase):
             ]})
 
 
+
+class NativeVerifierCompatibilityTest(unittest.TestCase):
+    def test_reviewed_core_toolchain_message_is_supported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            verifier = root / "tools/verify-hiddify-build.py"
+            verifier.parent.mkdir(parents=True)
+            verifier.write_text('require(build["toolchain"] == "go1.27.3", "Runtime must use the reviewed security-patched core toolchain")\n')
+            prepare.refresh_panel_verifier_toolchain_check(
+                root, {"panel_build": {"toolchain": "go1.27.3"}}
+            )
+            self.assertEqual(1, verifier.read_text().count('build["toolchain"] == "go1.27.3"'))
+            self.assertIn("reviewed security-patched core toolchain", verifier.read_text())
+
+    def test_legacy_core_toolchain_message_can_be_upgraded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            verifier = root / "tools/verify-hiddify-build.py"
+            verifier.parent.mkdir(parents=True)
+            verifier.write_text('require(build["toolchain"] == "go1.26.9", "Runtime must use the pinned security-patched toolchain")\n')
+            prepare.refresh_panel_verifier_toolchain_check(
+                root, {"panel_build": {"toolchain": "go1.27.3"}}
+            )
+            self.assertIn('build["toolchain"] == "go1.27.3"', verifier.read_text())
+
 class NativeDependenciesTest(unittest.TestCase):
     def fixture(self, folder):
         panel = folder / "panel"

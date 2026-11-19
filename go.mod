@@ -247,7 +247,7 @@ require (
 	github.com/refraction-networking/ed25519 v0.1.2 // indirect
 	github.com/refraction-networking/gotapdance v1.7.10 // indirect
 	github.com/refraction-networking/obfs4 v0.1.2 // indirect
-	github.com/refraction-networking/utls v1.8.3-0.20260301010127-aa6edf4b11af // indirect
+	github.com/refraction-networking/utls v1.8.3-0.20261108164504-a13c59ffe98b // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/safchain/ethtool v0.3.0 // indirect

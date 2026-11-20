@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/hiddify/hiddify.com/refs/heads/main/docs/assets/hiddify-app-logo.svg" alt="Hiddify Logo" width="128">
 </p>
 
-<h1 align="center">Hiddify Core</h1>
+<h1 align="center">Hiddify Core — SawaMEN fork</h1>
 
 <p align="center">
   <strong>The Ultimate Universal Proxy Platform</strong><br>
@@ -12,26 +12,34 @@
 <p align="center">
   <a href="https://hiddify.com"><img src="https://img.shields.io/badge/Website-hiddify.com-blue?style=flat-square" alt="Website"></a>
   <a href="https://t.me/hiddify"><img src="https://img.shields.io/badge/Telegram-Join-blue?style=flat-square&logo=telegram" alt="Telegram"></a>
-  <img src="https://img.shields.io/github/license/hiddify/hiddify-core?style=flat-square" alt="License">
-  <img src="https://img.shields.io/github/v/release/hiddify/hiddify-core?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/github/license/SawaMEN/hiddify-core?style=flat-square" alt="License">
+  <img src="https://img.shields.io/github/v/release/SawaMEN/hiddify-core?style=flat-square" alt="Version">
 </p>
 
 ---
 
-## 🚀 Quick Setup
+## Installing the SawaMEN kernel
 
-Install `hiddify-core` on any Linux platform (Ubuntu, Debian, CentOS, OpenWrt, and more) with a single command:
+This repository contains the **modified, native Sing-box kernel** for
+[SawaMEN/3x-ui](https://github.com/SawaMEN/3x-ui). It is not the stock
+`hiddify/hiddify-core` release.
 
-```bash
-bash <(curl https://i.hiddify.com/core)
-```
-or 
-```bash
-bash <(curl -Ls https://raw.githubusercontent.com/hiddify/hiddify-core/main/installer.sh)
-```
+For 3x-ui servers, use the panel's kernel installation/update workflow.
+Only use a version after its Linux AMD64 and ARM64 release checks succeed.
 
-> [!NOTE]
-> This script automatically detects your OS and architecture, installs the appropriate binary, and configures the service manager (Systemd or Procd).
+- [SawaMEN kernel releases](https://github.com/SawaMEN/hiddify-core/releases)
+- [Native release build and tests](https://github.com/SawaMEN/hiddify-core/actions/workflows/panel-kernel-release.yml)
+- [Modified Sing-box source](https://github.com/SawaMEN/hiddify-sing-box)
+
+Each verified Linux release packages the matching `hiddify-core-linux-<arch>`
+executable, `libcronet.so`, `target.json`, and SHA-256 checksums.
+`target.json` records the pinned core and Sing-box revisions so installers
+can reject mismatched downloads.
+
+**Do not use** `https://i.hiddify.com/core`, the upstream
+`hiddify/hiddify-core` installer, or `ghcr.io/hiddify/hiddify-core`
+to install this fork. Those are **upstream Hiddify** distribution channels,
+not SawaMEN builds.
 
 ---
 
@@ -45,23 +53,16 @@ bash <(curl -Ls https://raw.githubusercontent.com/hiddify/hiddify-core/main/inst
 
 ---
 
-## 🛠 Installation Methods
+## 🛠 Other platforms
 
-### 🐳 Docker
-Quickly deploy as a containerized service:
+The fork's verified 3x-ui release pipeline currently publishes Linux
+`amd64` and `arm64` packages. Android AAR packaging is available through
+a separate manual workflow and is not required for the server release.
 
-```bash
-# Pull image
-docker pull ghcr.io/hiddify/hiddify-core:latest
-
-# Or using Docker Compose
-git clone https://github.com/hiddify/hiddify-core
-cd hiddify-core/docker
-docker-compose up -d
-```
-
-### 📶 OpenWrt
-For manual installation or advanced configuration on OpenWrt, refer to our [OpenWrt Setup Guide](platform/wrt/README.md).
+The stock Hiddify Docker image, upstream installers and generic OpenWrt
+instructions are **not** proof of compatibility with this fork. Refer to
+[upstream Hiddify Core](https://github.com/hiddify/hiddify-core) for those
+separate distribution methods.
 
 ---
 

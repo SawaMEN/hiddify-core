@@ -3,7 +3,6 @@ name: Release modified Sing-box
 on:
   push:
     branches: [update, main]
-  pull_request:
   workflow_dispatch:
   workflow_call:
 

@@ -31,7 +31,10 @@ def fixture(root):
               "native_source_files\n"
               "go mod tidy\n"
               "go mod download packages\n"
-              "go build -buildvcs=true\nsha256sum\n")
+              "go build -buildvcs=true\n"
+              "CGO_ENABLED=0 go test github.com/metacubex/utls -run '^TestChrome155(CapturedClientHello|DefaultFingerprintRoundTrip|PresetOwnership)$' -count=1 -timeout=90s\n"
+              "if [[ ${HIDDIFY_VULNCHECK:-0} == 1 ]]; then true; fi\n"
+              "sha256sum\n")
     (root / "tools/build-hiddify-core.sh").write_text(script)
     return {
         "panel_build": {"tags": sorted(prep.REQUIRED_TAGS), "native_source_files": REVIEWED},
@@ -72,6 +75,35 @@ class NativeBuildTest(unittest.TestCase):
             with (root / "tools/build-hiddify-core.sh").open("a") as script:
                 script.write("git apply --check removed.patch\n")
             with self.assertRaises(ValueError):
+                prep.verify_native_panel(root, lock)
+
+    def test_reject_malformed_panel_builder_shell(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lock = fixture(root)
+            with (root / "tools/build-hiddify-core.sh").open("a") as script:
+                script.write("echo 'unclosed quote\\n")
+            with self.assertRaisesRegex(ValueError, "Bash syntax"):
+                prep.verify_native_panel(root, lock)
+
+    def test_reject_duplicated_native_release_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lock = fixture(root)
+            with (root / "tools/build-hiddify-core.sh").open("a") as script:
+                script.write("go build -buildvcs=true\\n")
+            with self.assertRaisesRegex(ValueError, "missing or duplicated"):
+                prep.verify_native_panel(root, lock)
+
+    def test_reject_missing_browser_fingerprint_test_gate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lock = fixture(root)
+            script_path = root / "tools/build-hiddify-core.sh"
+            script = script_path.read_text()
+            script_path.write_text(script.replace("github.com/metacubex/utls -run '^TestChrome155(",
+                                                  "github.com/metacubex/utls -run '^OldChrome133("))
+            with self.assertRaisesRegex(ValueError, "missing or duplicated"):
                 prep.verify_native_panel(root, lock)
 
     def test_validate_abi_suffix(self):

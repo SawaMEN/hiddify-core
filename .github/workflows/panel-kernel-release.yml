@@ -3,6 +3,7 @@ name: Release modified Sing-box
 on:
   push:
     branches: [update, main]
+  pull_request:
   workflow_dispatch:
   workflow_call:
 
@@ -30,6 +31,30 @@ jobs:
           persist-credentials: false
       - name: Check panel overlay preparation
         run: python3 -m unittest discover -s tools -p 'test_prepare_panel_kernel.py'
+      - name: Checkout panel release contract
+        uses: actions/checkout@v7
+        with:
+          repository: SawaMEN/3x-ui
+          ref: main
+          path: panel-source
+          persist-credentials: false
+      - name: Verify actual panel release builder and source inventory
+        run: |
+          set -euo pipefail
+          bash -n panel-source/tools/build-hiddify-core.sh
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          from pathlib import Path
+          module = Path("tools/prepare-panel-kernel.py")
+          spec = importlib.util.spec_from_file_location("kernel_preflight", module)
+          preflight = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(preflight)
+          panel = Path("panel-source")
+          lock = json.loads((panel / "deploy/hiddify/hiddify-core-target.json").read_text())
+          preflight.verify_native_panel(panel, lock)
+          print("Native builder syntax, source inventory and release gates: PASS")
+          PY
       - name: Resolve source revision
         id: resolve
         shell: bash

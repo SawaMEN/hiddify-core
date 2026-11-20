@@ -42,7 +42,7 @@ above it. Use this table before writing code:
 - Before adding anything to the fork, read `hiddify-sing-box/docs/hiddify/` and search the code.
   Most "missing" features already exist under another name. Extend what exists; never add a
   parallel option, type or package.
-- A fork change is committed on the fork's `v5` branch and pushed first. Then this repo bumps the
+- A fork change is committed on the fork's `main` branch and pushed first. Then this repo bumps the
   submodule pointer in its own commit, `build(deps): bump hiddify-sing-box to <id>`. The same
   holds for `ray2sing/` and the forks under `hiddify-sing-box/replace/`.
 

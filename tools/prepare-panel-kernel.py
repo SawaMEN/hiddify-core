@@ -54,7 +54,20 @@ def verify_native_panel(panel, lock):
     checks = {row["path"]: row["contains"] for row in lock.get("source_checks", [])}
     if checks.get("cmd/cmd_xui_check.go") != 'Use:   "check"' or checks.get("hiddify-sing-box/transport/masque/server.go") != 'xuispeed.New("masque:"':
         raise ValueError("Native CLI or speed-broker evidence missing")
-    builder = (panel / "tools/build-hiddify-core.sh").read_text()
+    builder_path = panel / "tools/build-hiddify-core.sh"
+    builder = builder_path.read_text()
+    # A malformed quote or duplicated block can stop every core release
+    # before Go starts. Validate the actual panel builder, not a copied fixture.
+    shell = subprocess.run(["bash", "-n", str(builder_path)], capture_output=True, text=True)
+    if shell.returncode:
+        raise ValueError("Invalid native kernel builder Bash syntax: " + shell.stderr.strip())
+    for fragment in (
+        "go build -buildvcs=true",
+        "github.com/metacubex/utls -run '^TestChrome155(",
+        "if [[ ${HIDDIFY_VULNCHECK:-0} == 1 ]]; then",
+    ):
+        if builder.count(fragment) != 1:
+            raise ValueError("Native kernel builder gate is missing or duplicated: " + fragment)
     if ".patch" in builder or ".go.in" in builder or "xui-dependencies" in builder:
         raise ValueError("Native builder still modifies upstream sources")
     for evidence in ("verify-hiddify-build.py", "native_source_files", "go mod tidy", "go mod download", "go build -buildvcs=true", "sha256sum"):

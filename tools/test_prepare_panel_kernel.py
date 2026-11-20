@@ -114,6 +114,14 @@ class NativeBuildTest(unittest.TestCase):
                         workflow.index("name: MASQUE HTTP/2 CONNECT-IP"))
         self.assertIn("if: matrix.arch == 'amd64'", workflow)
 
+    def test_masque_release_gate_requires_all_wire_protocols(self):
+        workflow = (Path(__file__).parents[1] / ".github/workflows/panel-kernel-release.yml").read_text()
+        self.assertIn('"TestMASQUESpeedLimits/HTTP1"', workflow)
+        self.assertIn('"TestMASQUESpeedLimits/HTTP2"', workflow)
+        self.assertIn('"TestMASQUESpeedLimits/HTTP3"', workflow)
+        self.assertIn('if results.get(name) != "pass"', workflow)
+        self.assertIn('MASQUE release E2E incomplete', workflow)
+
     def test_validate_abi_suffix(self):
         old = "sawamen-4f1b5e6b9b2b-4fe303071f4f-mask1-ciphers1-net62-sec1-stream1"
         self.assertEqual("-mask1-ciphers1-net62-sec1-stream1", prep.patch_profile_suffix(old))

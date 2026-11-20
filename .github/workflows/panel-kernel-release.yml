@@ -104,6 +104,14 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           SINGBOX_CRONET_LINKAGE: purego
         run: bash panel-source/tools/build-hiddify-core.sh "$PWD/kernel-output"
+      # Kernel and panel Go directives are independent: panel tests must use
+      # the panel's compiler (1.27.4), not the kernel's build toolchain (1.27.3).
+      - name: Set up panel Go toolchain for integration tests
+        if: matrix.arch == 'amd64'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: panel-source/go.mod
+          cache-dependency-path: panel-source/go.sum
       - name: MASQUE HTTP/2 CONNECT-IP and shared speed broker TCP/UDP regression
         if: matrix.arch == 'amd64'
         env:

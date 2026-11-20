@@ -106,6 +106,14 @@ class NativeBuildTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing or duplicated"):
                 prep.verify_native_panel(root, lock)
 
+    def test_release_uses_matching_panel_go_toolchain(self):
+        workflow = (Path(__file__).parents[1] / ".github/workflows/panel-kernel-release.yml").read_text()
+        self.assertIn("go-version-file: panel-source/go.mod", workflow)
+        self.assertIn("cache-dependency-path: panel-source/go.sum", workflow)
+        self.assertLess(workflow.index("go-version-file: panel-source/go.mod"),
+                        workflow.index("name: MASQUE HTTP/2 CONNECT-IP"))
+        self.assertIn("if: matrix.arch == 'amd64'", workflow)
+
     def test_validate_abi_suffix(self):
         old = "sawamen-4f1b5e6b9b2b-4fe303071f4f-mask1-ciphers1-net62-sec1-stream1"
         self.assertEqual("-mask1-ciphers1-net62-sec1-stream1", prep.patch_profile_suffix(old))
